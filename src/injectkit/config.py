@@ -12,6 +12,7 @@ from urllib.parse import parse_qsl, urlsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from injectkit.errors import ConfigError
+from injectkit.extract import MAX_PATH_CHARS, validate_path
 from injectkit.redact import Redactor
 from injectkit.yamlio import load_yaml
 
@@ -41,7 +42,6 @@ _ENV_ONLY_RE = re.compile(r"(?:[A-Za-z][A-Za-z0-9_-]*[ =])?(?:\$\{[A-Za-z_][A-Za
 _URL_FORBIDDEN_RE = re.compile(r"[\x00-\x20\x7f-\U0010ffff]")
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
-_PATH_RE = re.compile(r"^[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$")
 
 
 def _is_sensitive_name(name: str) -> bool:
@@ -141,15 +141,13 @@ class RequestConfig(_Model):
 
 
 class ResponseConfig(_Model):
-    path: Annotated[str, Field(min_length=1, max_length=200)]
+    path: Annotated[str, Field(min_length=1, max_length=MAX_PATH_CHARS)]
     max_bytes: Annotated[int, Field(ge=1, le=MAX_RESPONSE_BYTES)] = 1024 * 1024
 
     @field_validator("path")
     @classmethod
     def _check_path(cls, value: str) -> str:
-        if not _PATH_RE.fullmatch(value):
-            raise ValueError("response.path must be a dot path of simple segments")
-        return value
+        return validate_path(value)
 
 
 class FragmentSpec(_Model):
