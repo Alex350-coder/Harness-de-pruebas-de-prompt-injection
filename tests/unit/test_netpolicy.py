@@ -136,3 +136,10 @@ async def test_decimal_obfuscated_host_is_resolved_then_denied() -> None:
 async def test_empty_host_is_rejected() -> None:
     with pytest.raises(NetworkPolicyError):
         await resolve_and_check("", 80, "public_only")
+
+
+@pytest.mark.parametrize("address", ["64:ff9b::7f00:1", "64:ff9b::a00:1", "2002:7f00:1::1"])
+@pytest.mark.parametrize("mode", MODES)
+def test_nat64_and_6to4_tunnels_are_denied(address: str, mode: NetworkMode) -> None:
+    with pytest.raises(NetworkPolicyError):
+        check_address(ipaddress.ip_address(address), mode)

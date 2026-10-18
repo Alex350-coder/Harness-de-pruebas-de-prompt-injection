@@ -15,6 +15,10 @@ type IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 type Resolver = Callable[[str, int], Awaitable[list[str]]]
 
 _CGNAT = ipaddress.ip_network("100.64.0.0/10")
+# Prefixes that embed IPv4 addresses and can tunnel to internal hosts.
+_TUNNELS = tuple(
+    ipaddress.ip_network(net) for net in ("64:ff9b::/96", "64:ff9b:1::/48", "2002::/16")
+)
 _RFC1918_AND_ULA = tuple(
     ipaddress.ip_network(net)
     for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
@@ -37,6 +41,7 @@ def _is_always_denied(address: IPAddress) -> bool:
         or address.is_unspecified
         or address.is_reserved
         or address in _METADATA
+        or (isinstance(address, ipaddress.IPv6Address) and any(address in n for n in _TUNNELS))
         or (isinstance(address, ipaddress.IPv4Address) and address in _CGNAT)
     )
 

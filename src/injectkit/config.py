@@ -44,7 +44,7 @@ _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _HEADER_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 
 
-def _is_sensitive_name(name: str) -> bool:
+def is_sensitive_name(name: str) -> bool:
     lowered = name.lower()
     return lowered in SENSITIVE_HEADERS or any(hint in lowered for hint in SENSITIVE_NAME_HINTS)
 
@@ -93,7 +93,7 @@ class RequestConfig(_Model):
             raise ValueError("url must not contain credentials")
         if parts.fragment or "#" in value:
             raise ValueError("url must not contain a fragment")
-        if any(_is_sensitive_name(name) for name, _ in query):
+        if any(is_sensitive_name(name) for name, _ in query):
             raise ValueError("url query must not carry credentials; use an env-referenced header")
         return value
 
@@ -105,7 +105,7 @@ class RequestConfig(_Model):
                 raise ValueError("header names must be valid HTTP tokens")
             if any(c in header_value for c in "\r\n\0") or any(c in name for c in "\r\n\0"):
                 raise ValueError("header values must not contain control line characters")
-            if _is_sensitive_name(name) and not _ENV_ONLY_RE.fullmatch(header_value):
+            if is_sensitive_name(name) and not _ENV_ONLY_RE.fullmatch(header_value):
                 raise ValueError(
                     f"header '{name}' must consist only of environment references "
                     "(${VAR}) with at most a one-word prefix, not a literal credential"
