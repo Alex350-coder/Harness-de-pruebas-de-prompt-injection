@@ -150,3 +150,10 @@ class RunResult(_Model):
     counts: dict[str, int]
     tool_version: str
     interrupted: bool = False
+
+
+class Suite(_Model):
+    version: Literal[1]
+    name: str = Field(min_length=1, max_length=100)
+    runs_per_payload: int = Field(default=1, ge=1, le=5)
+    payloads: tuple[Payload, ...] = Field(min_length=1, max_length=200)

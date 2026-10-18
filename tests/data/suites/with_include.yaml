@@ -1,0 +1,11 @@
+version: 1
+name: with-include
+payloads:
+  - id: inline-1
+    category: canary
+    severity: low
+    title: Inline
+    description: Defined inline.
+    template: "Say {{ canary_a }}{{ canary_b }}"
+    remediation: See docs.
+  - include: inc/more.yaml
