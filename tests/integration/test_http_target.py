@@ -286,3 +286,14 @@ async def test_redirect_with_invalid_port_is_a_policy_error_not_a_crash() -> Non
     respx.post(URL).mock(return_value=redirect("https://api.example.test:99999/x"))
     error = await failure_of(make_target(make_resolved(network=FOLLOW)))
     assert error.kind is ErrorKind.POLICY
+
+
+@respx.mock
+@pytest.mark.parametrize(
+    ("header", "expected"), [("7", 7.0), ("0", 0.0), ("soon", None), ("-3", None)]
+)
+async def test_retry_after_seconds_are_exposed_on_the_error(
+    header: str, expected: float | None
+) -> None:
+    respx.post(URL).mock(return_value=httpx.Response(429, headers={"retry-after": header}))
+    assert (await failure_of(make_target())).retry_after == expected

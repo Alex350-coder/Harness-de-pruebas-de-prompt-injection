@@ -30,6 +30,7 @@ class _Raw:
     status: int
     location: str | None
     data: bytes
+    retry_after: float | None = None
 
 
 def substitute(node: Any, text: str) -> Any:
@@ -41,6 +42,13 @@ def substitute(node: Any, text: str) -> Any:
     if node == PLACEHOLDER:
         return text
     return node
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Delta-seconds form only; HTTP-date values are ignored (backoff applies instead)."""
+    if value is None or not (value.isascii() and value.isdigit()) or len(value) > 9:
+        return None
+    return float(value)
 
 
 def _origin(url: str) -> Origin:
@@ -75,8 +83,16 @@ class HttpTarget:
         if client is not None:
             await client.aclose()
 
-    def _fail(self, kind: ErrorKind, message: str, status: int | None = None) -> TargetError:
-        return TargetError(kind, self._resolved.redactor.mask(message), status_code=status)
+    def _fail(
+        self,
+        kind: ErrorKind,
+        message: str,
+        status: int | None = None,
+        retry_after: float | None = None,
+    ) -> TargetError:
+        return TargetError(
+            kind, self._resolved.redactor.mask(message), status_code=status, retry_after=retry_after
+        )
 
     def _transport_failure(self, exc: Exception) -> TargetError:
         if isinstance(exc, httpx.TimeoutException):
@@ -123,7 +139,9 @@ class HttpTarget:
             if 200 <= raw.status < 300:
                 return raw
             if not (network.follow_redirects and raw.status in _FOLLOWED_REDIRECTS):
-                raise self._fail(ErrorKind.HTTP_STATUS, f"HTTP {raw.status}", raw.status)
+                raise self._fail(
+                    ErrorKind.HTTP_STATUS, f"HTTP {raw.status}", raw.status, raw.retry_after
+                )
             if hop == last_hop:
                 raise self._fail(ErrorKind.POLICY, "too many redirects")
             try:
@@ -170,7 +188,8 @@ class HttpTarget:
             async with client.stream(method, url, content=body, headers=headers) as response:
                 location = response.headers.get("location")
                 if not 200 <= response.status_code < 300:
-                    return _Raw(response.status_code, location, b"")
+                    retry = _parse_retry_after(response.headers.get("retry-after"))
+                    return _Raw(response.status_code, location, b"", retry)
                 return _Raw(response.status_code, location, await self._read_capped(response))
         except (httpx.HTTPError, httpx.InvalidURL, httpx.StreamError) as exc:
             raise self._transport_failure(exc) from None
