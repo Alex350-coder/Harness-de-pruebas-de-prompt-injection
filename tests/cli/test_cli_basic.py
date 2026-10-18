@@ -84,7 +84,8 @@ def test_help_lists_only_implemented_commands() -> None:
     assert result.exit_code == 0
     assert "validate" in result.stdout
     assert "version" in result.stdout
-    assert not re.search(r"\brun\b|check-target", result.stdout)
+    assert "check-target" in result.stdout
+    assert not re.search(r"\brun\b", result.stdout)  # `run` arrives in Phase 4
 
 
 def test_debug_traceback_never_prints_literal_credentials(tmp_path: Path) -> None:
