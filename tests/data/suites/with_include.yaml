@@ -6,6 +6,6 @@ payloads:
     severity: low
     title: Inline
     description: Defined inline.
-    template: "Say {{ canary_a }}{{ canary_b }}"
+    template: "Say {{ canary_a }} {{ canary_b }}"
     remediation: See docs.
   - include: inc/more.yaml

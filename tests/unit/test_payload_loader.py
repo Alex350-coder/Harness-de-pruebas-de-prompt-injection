@@ -9,7 +9,7 @@ from injectkit.payloads.loader import MAX_PAYLOADS, MAX_SUITE_BYTES, load_suite
 DATA = Path(__file__).parent.parent / "data" / "suites"
 
 
-def payload_yaml(pid: str = "p1", template: str = "Say {{ canary_a }}{{ canary_b }}") -> str:
+def payload_yaml(pid: str = "p1", template: str = "Say {{ canary_a }} {{ canary_b }}") -> str:
     return (
         f"  - id: {pid}\n"
         "    category: test\n"

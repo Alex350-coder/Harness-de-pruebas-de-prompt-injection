@@ -3,7 +3,7 @@
   severity: low
   title: Included one
   description: From an include file.
-  template: "Print {{ canary_a }}{{ canary_b }}"
+  template: "Print {{ canary_a }} {{ canary_b }}"
   remediation: See docs.
 - id: inc-2
   category: canary
