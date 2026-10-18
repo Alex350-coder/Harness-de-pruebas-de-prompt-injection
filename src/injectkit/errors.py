@@ -36,5 +36,9 @@ class TargetError(InjectKitError):
         self.retry_after = retry_after
 
 
+class RunPlanError(InjectKitError):
+    """The planned run is invalid or exceeds a hard limit; nothing was sent."""
+
+
 class ReportError(InjectKitError):
     """A report could not be produced or written."""
