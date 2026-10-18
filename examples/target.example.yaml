@@ -1,0 +1,33 @@
+# Example InjectKit target. Use it ONLY against systems you own or may test.
+# Secrets are never written here: they are read from environment variables.
+version: 1
+authorization:
+  confirmed: true
+  scope_note: "Own staging chatbot"
+name: example-chatbot
+request:
+  url: https://staging.example.com/api/chat
+  method: POST
+  headers:
+    Authorization: "Bearer ${CHATBOT_API_KEY}"
+    Content-Type: application/json
+  body:
+    messages:
+      - role: user
+        content: "{{payload}}"
+response:
+  path: choices.0.message.content
+  max_bytes: 1048576
+secret_fragments:
+  - id: sys-1
+    value_env: SYSTEM_PROMPT_FRAGMENT
+limits:
+  timeout_seconds: 30
+  concurrency: 4
+  requests_per_second: 2.0
+  retries: 2
+  max_requests: 500
+network:
+  policy: public_only
+  follow_redirects: false
+  max_redirects: 3
