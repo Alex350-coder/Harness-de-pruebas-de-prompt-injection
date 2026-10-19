@@ -77,20 +77,75 @@ def _expand(base: Path, entries: object) -> list[object]:
     return expanded
 
 
-# A group whose body already contains a quantifier and which is itself quantified, such as
-# ``(a+)+`` or ``(\w+\s?)*``: the classic exponential-backtracking shape. Heuristic only;
-# overlapping alternations like ``(a|aa)+`` are not detected (documented residual risk).
-_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]")
+MAX_UNBOUNDED_QUANTIFIERS = 3
+
+
+def _scan_regex(pattern: str) -> tuple[bool, int]:
+    """Return (nested_repeat, unbounded_count) for a regex, without compiling it.
+
+    ``nested_repeat`` is true when a quantified group contains another quantifier or an
+    alternation (``(a+)+``, ``(a|aa)*``, ``((a+))+``): the exponential-backtracking shapes.
+    Character classes and escapes are skipped so ``[+*]`` does not count as a quantifier.
+    """
+    frames = [False]  # per open group: contains a repeat or an alternation
+    unbounded = 0
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char == "[":
+            i += 2 if pattern[i + 1 : i + 2] != "^" else 3
+            while i < len(pattern) and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+            i += 1
+            continue
+        if char == "(":
+            frames.append(False)
+            i += 1
+            if pattern[i : i + 1] == "?":  # group syntax such as (?: (?= (?P<n> (?i)
+                while i < len(pattern) and pattern[i] not in ":)>=!":
+                    i += 1
+                i += 1 if pattern[i : i + 1] in (":", ">", "=", "!") else 0
+            continue
+        if char == ")" and len(frames) > 1:
+            inner = frames.pop()
+            after = pattern[i + 1 : i + 2]
+            quantified = after in ("+", "*") or (after == "{" and pattern[i + 2 : i + 3].isdigit())
+            if quantified and inner:
+                return True, unbounded
+            frames[-1] = frames[-1] or inner or quantified
+        elif char == "|":
+            frames[-1] = True
+        elif char in "+*":
+            unbounded += 1
+            frames[-1] = True
+        elif char == "{" and pattern[i + 1 : i + 2].isdigit():
+            frames[-1] = True
+        i += 1
+    return False, unbounded
 
 
 def lint_regex(pattern: str) -> None:
-    """Compile-check a response-check regex and refuse nested-quantifier shapes."""
+    """Compile-check a response-check regex and refuse backtracking-prone shapes.
+
+    Heuristic only: Python's ``re`` has no timeout, so this lowers (not removes) the risk.
+    """
     try:
         re.compile(pattern)
     except re.error:
         raise PayloadError("invalid regex check") from None
-    if _NESTED_QUANTIFIER.search(pattern):
-        raise PayloadError("regex check uses a nested quantifier (catastrophic backtracking risk)")
+    nested, unbounded = _scan_regex(pattern)
+    if nested:
+        raise PayloadError(
+            "regex check uses a nested quantifier or a quantified alternation "
+            "(catastrophic backtracking risk)"
+        )
+    if unbounded > MAX_UNBOUNDED_QUANTIFIERS:
+        raise PayloadError(
+            f"regex check has more than {MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers"
+        )
 
 
 def _check_payload(payload: Payload) -> None:

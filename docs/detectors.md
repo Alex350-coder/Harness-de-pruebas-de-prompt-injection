@@ -54,9 +54,18 @@ additionally ignore all whitespace. A normalized-only match is always POTENTIAL,
 * Rules come from the payload: `contains` (normalized substring), `regex` (case-insensitive search) and
   `must_contain` (the finding fires when the text is *missing*). Always POTENTIAL, never CONFIRMED.
   Rules are not applied to empty responses.
-* **Bounds:** only the first 64 KiB of a response is examined; patterns are at most 200 characters; a
-  regex with a nested quantifier such as `(a+)+` is rejected when the suite is loaded. Overlapping
-  alternations like `(a|aa)+` are *not* detected by that check, so use only reviewed patterns.
+* **Bounds:** only the first 64 KiB of a response is examined; patterns are at most 200 characters.
+  When a suite is loaded, a regex is rejected if a quantified group contains another quantifier or an
+  alternation (`(a+)+`, `((a+))+`, `(a|aa)*`) or if it has more than three unbounded quantifiers.
+  This is a heuristic: Python `re` has no timeout, so a hostile pattern with a few unbounded
+  quantifiers can still be slow on 64 KiB. Use only reviewed patterns (a real timeout would need a
+  separate process or a new dependency, which is not part of the MVP).
+* **Echo safety:** a `contains` or `regex` match whose text also appears in the request is ignored,
+  because a model that only quotes the request would otherwise trigger it. `must_contain` is not
+  affected.
+* **Evidence:** control characters are removed and secrets are masked on the whole examined text
+  before the excerpt is cut, and an excerpt that still contains a configured fragment in an altered
+  form (for example another case) is replaced by a "withheld" notice.
 * **Known false positives:** a refusal that quotes the forbidden phrase, and broad patterns matching
   generic advice (corpus `rc-07`, `rc-08`).
 * **Known false negatives:** a leak in different words, and matching text beyond the first 64 KiB
