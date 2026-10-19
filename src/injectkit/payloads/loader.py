@@ -64,14 +64,30 @@ def _expand(base: Path, entries: object) -> list[object]:
     return expanded
 
 
+# A group whose body already contains a quantifier and which is itself quantified, such as
+# ``(a+)+`` or ``(\w+\s?)*``: the classic exponential-backtracking shape. Heuristic only;
+# overlapping alternations like ``(a|aa)+`` are not detected (documented residual risk).
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[+*](?:[^()\\]|\\.)*\)\s*[+*{]")
+
+
+def lint_regex(pattern: str) -> None:
+    """Compile-check a response-check regex and refuse nested-quantifier shapes."""
+    try:
+        re.compile(pattern)
+    except re.error:
+        raise PayloadError("invalid regex check") from None
+    if _NESTED_QUANTIFIER.search(pattern):
+        raise PayloadError("regex check uses a nested quantifier (catastrophic backtracking risk)")
+
+
 def _check_payload(payload: Payload) -> None:
     lint_template(payload.template)
     for check in payload.checks:
         if check.kind == "regex":
             try:
-                re.compile(check.pattern)
-            except re.error:
-                raise PayloadError(f"payload '{payload.id}' has an invalid regex check") from None
+                lint_regex(check.pattern)
+            except PayloadError as exc:
+                raise PayloadError(f"payload '{payload.id}': {exc}") from None
 
 
 def _build(document: object, base: Path) -> Suite:

@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Protocol
 
 from injectkit.config import ResolvedFragment
 from injectkit.models import (
+    CheckSpec,
     Confidence,
     Exchange,
     Finding,
     Outcome,
     Payload,
 )
+from injectkit.payloads.loader import lint_regex
 from injectkit.redact import Redactor, strip_control
 
 _MAX_NORMALIZE_PASSES = 4
@@ -266,3 +270,81 @@ class SecretFragmentDetector:
         before = masked[max(0, at - EVIDENCE_CONTEXT_CHARS) : at]
         after = masked[at + len(marker) : at + len(marker) + EVIDENCE_CONTEXT_CHARS]
         return " ".join(strip_control(f"{before}{marker}{after}").split())
+
+
+MAX_CHECK_INPUT_CHARS = 64 * 1024  # response text examined by response checks
+CHECK_EXCERPT_CHARS = 30  # characters kept on each side of a matched span
+MAX_CHECK_EVIDENCE_CHARS = 200
+
+
+@lru_cache(maxsize=256)
+def _compile(pattern: str) -> re.Pattern[str]:
+    lint_regex(pattern)
+    return re.compile(pattern, re.IGNORECASE)
+
+
+class ResponseCheckDetector:
+    """Runs the payload's own ``contains`` / ``regex`` / ``must_contain`` rules.
+
+    Always POTENTIAL: a rule is a heuristic chosen by the payload author. Rules never run
+    on an empty response (that is INCONCLUSIVE), and only the first 64 KiB is examined.
+    """
+
+    name = "response_check"
+    limitation = "Rule is a heuristic; review manually"
+
+    def __init__(self, target_id: str, redactor: Redactor | None = None) -> None:
+        self._target_id = target_id
+        self._redactor = redactor
+
+    def check(self, exchange: Exchange, payload: Payload) -> list[Finding]:
+        response = exchange.response_text
+        if response is None or not response.strip() or not payload.checks:
+            return []
+        text = response[:MAX_CHECK_INPUT_CHARS]
+        normalized = normalize(text)
+        findings: list[Finding] = []
+        for index, rule in enumerate(payload.checks):
+            evidence = self._evaluate(rule, text, normalized)
+            if evidence is None:
+                continue
+            findings.append(
+                _finding(
+                    detector=self,
+                    exchange=exchange,
+                    payload=payload,
+                    target_id=self._target_id,
+                    outcome=Outcome.POTENTIAL,
+                    confidence=Confidence.LOW if rule.kind == "must_contain" else Confidence.MEDIUM,
+                    evidence=evidence,
+                    indicator=f"{rule.kind}[{index}]",
+                )
+            )
+        return findings
+
+    def _evaluate(self, rule: CheckSpec, text: str, normalized: str) -> str | None:
+        """Evidence if the rule fires on ``text``, else ``None``."""
+        if rule.kind == "must_contain":
+            if normalize(rule.pattern) in normalized:
+                return None
+            return self._clean(f"required text not found: {rule.pattern}")
+        if rule.kind == "contains":
+            if normalize(rule.pattern) not in normalized:
+                return None
+            raw_at = text.casefold().find(rule.pattern.casefold())
+            return self._excerpt(text, max(raw_at, 0), len(rule.pattern))
+        match = _compile(rule.pattern).search(text)
+        if match is None:
+            return None
+        return self._excerpt(text, match.start(), match.end() - match.start())
+
+    def _excerpt(self, text: str, start: int, length: int) -> str:
+        begin = max(0, start - CHECK_EXCERPT_CHARS)
+        end = start + length + CHECK_EXCERPT_CHARS
+        return self._clean(text[begin:end])
+
+    def _clean(self, text: str) -> str:
+        if self._redactor is not None:
+            text = self._redactor.mask(text)
+        cleaned = " ".join(strip_control(text).split())
+        return cleaned[:MAX_CHECK_EVIDENCE_CHARS]
