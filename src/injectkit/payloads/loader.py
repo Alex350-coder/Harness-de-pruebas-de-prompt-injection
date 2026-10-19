@@ -47,16 +47,29 @@ def _include_path(base: Path, relative: object) -> Path:
     return candidate
 
 
+def _select_ids(included: list[object], ids: object) -> list[object]:
+    """Keep only the payloads named in an include's optional ``ids`` list (in that order)."""
+    if ids is None:
+        return included
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        raise PayloadError("'ids' must be a non-empty list of payload id strings")
+    by_id = {p["id"]: p for p in included if isinstance(p, dict) and isinstance(p.get("id"), str)}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        raise PayloadError(f"include does not define payload id(s): {', '.join(missing)}")
+    return [by_id[i] for i in ids]
+
+
 def _expand(base: Path, entries: object) -> list[object]:
     if not isinstance(entries, list):
         raise PayloadError("'payloads' must be a list")
     expanded: list[object] = []
     for entry in entries:
-        if isinstance(entry, dict) and set(entry) == {"include"}:
+        if isinstance(entry, dict) and "include" in entry and set(entry) <= {"include", "ids"}:
             included = _read_yaml(_include_path(base, entry["include"]))
             if not isinstance(included, list):
                 raise PayloadError("an include file must contain a list of payloads")
-            expanded.extend(included)
+            expanded.extend(_select_ids(included, entry.get("ids")))
         else:
             expanded.append(entry)
         if len(expanded) > MAX_PAYLOADS:
@@ -113,7 +126,7 @@ def _build(document: object, base: Path) -> Suite:
 def _builtin_path(name: str) -> Path:
     if not _SUITE_NAME_RE.fullmatch(name):
         raise PayloadError("suite name must be lowercase letters, digits, '_' or '-'")
-    resource = resources.files("injectkit.payloads") / "data" / f"{name}.yaml"
+    resource = resources.files("injectkit.payloads") / "data" / "suites" / f"{name}.yaml"
     path = Path(str(resource))
     if not path.is_file():
         raise PayloadError(f"unknown built-in suite '{name}'")

@@ -151,3 +151,26 @@ def test_unknown_builtin_name_is_a_payload_error() -> None:
 def test_builtin_names_are_restricted(name: str) -> None:
     with pytest.raises(PayloadError):
         load_suite(name)
+
+
+def include_suite(tmp_path: Path, ids: str) -> Path:
+    (tmp_path / "inc.yaml").write_text(
+        (DATA / "inc" / "more.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    body = f"version: 1\nname: s\npayloads:\n  - include: inc.yaml\n    ids: {ids}\n"
+    return write(tmp_path, body)
+
+
+def test_include_ids_selects_payloads_in_the_given_order(tmp_path: Path) -> None:
+    suite = load_suite(include_suite(tmp_path, "[inc-2, inc-1]"))
+    assert [p.id for p in suite.payloads] == ["inc-2", "inc-1"]
+
+
+def test_include_ids_can_pick_a_single_payload(tmp_path: Path) -> None:
+    assert [p.id for p in load_suite(include_suite(tmp_path, "[inc-1]")).payloads] == ["inc-1"]
+
+
+@pytest.mark.parametrize("ids", ["[nope]", "[inc-1, nope]", "[]", "inc-1", "[1, 2]"])
+def test_include_ids_rejects_unknown_or_malformed_values(tmp_path: Path, ids: str) -> None:
+    with pytest.raises(PayloadError):
+        load_suite(include_suite(tmp_path, ids))
