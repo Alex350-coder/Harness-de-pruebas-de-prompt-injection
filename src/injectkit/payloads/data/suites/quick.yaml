@@ -1,0 +1,21 @@
+# Built-in suite "quick": one representative payload per category (a fast smoke run).
+# reviewed_by: Claude (AI coding agent, Claude Code session); independent human review PENDING.
+version: 1
+name: quick
+payloads:
+  - include: library/direct_override.yaml
+    ids: [do-01]
+  - include: library/system_prompt_extraction.yaml
+    ids: [spe-01]
+  - include: library/role_play.yaml
+    ids: [rp-01]
+  - include: library/delimiter_confusion.yaml
+    ids: [dc-01]
+  - include: library/instruction_smuggling.yaml
+    ids: [is-01]
+  - include: library/canary_exfiltration.yaml
+    ids: [ce-01]
+  - include: library/output_format_abuse.yaml
+    ids: [ofa-01]
+  - include: library/context_stuffing.yaml
+    ids: [cs-01]

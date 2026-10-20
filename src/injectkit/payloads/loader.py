@@ -47,16 +47,29 @@ def _include_path(base: Path, relative: object) -> Path:
     return candidate
 
 
+def _select_ids(included: list[object], ids: object) -> list[object]:
+    """Keep only the payloads named in an include's optional ``ids`` list (in that order)."""
+    if ids is None:
+        return included
+    if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+        raise PayloadError("'ids' must be a non-empty list of payload id strings")
+    by_id = {p["id"]: p for p in included if isinstance(p, dict) and isinstance(p.get("id"), str)}
+    missing = [i for i in ids if i not in by_id]
+    if missing:
+        raise PayloadError(f"include does not define payload id(s): {', '.join(missing)}")
+    return [by_id[i] for i in ids]
+
+
 def _expand(base: Path, entries: object) -> list[object]:
     if not isinstance(entries, list):
         raise PayloadError("'payloads' must be a list")
     expanded: list[object] = []
     for entry in entries:
-        if isinstance(entry, dict) and set(entry) == {"include"}:
+        if isinstance(entry, dict) and "include" in entry and set(entry) <= {"include", "ids"}:
             included = _read_yaml(_include_path(base, entry["include"]))
             if not isinstance(included, list):
                 raise PayloadError("an include file must contain a list of payloads")
-            expanded.extend(included)
+            expanded.extend(_select_ids(included, entry.get("ids")))
         else:
             expanded.append(entry)
         if len(expanded) > MAX_PAYLOADS:
@@ -64,14 +77,85 @@ def _expand(base: Path, entries: object) -> list[object]:
     return expanded
 
 
+MAX_UNBOUNDED_QUANTIFIERS = 3
+
+
+def _scan_regex(pattern: str) -> tuple[bool, int]:
+    """Return (nested_repeat, unbounded_count) for a regex, without compiling it.
+
+    ``nested_repeat`` is true when a quantified group contains another quantifier or an
+    alternation (``(a+)+``, ``(a|aa)*``, ``((a+))+``): the exponential-backtracking shapes.
+    Character classes and escapes are skipped so ``[+*]`` does not count as a quantifier.
+    """
+    frames = [False]  # per open group: contains a repeat or an alternation
+    unbounded = 0
+    i = 0
+    while i < len(pattern):
+        char = pattern[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char == "[":
+            i += 2 if pattern[i + 1 : i + 2] != "^" else 3
+            while i < len(pattern) and pattern[i] != "]":
+                i += 2 if pattern[i] == "\\" else 1
+            i += 1
+            continue
+        if char == "(":
+            frames.append(False)
+            i += 1
+            if pattern[i : i + 1] == "?":  # group syntax such as (?: (?= (?P<n> (?i)
+                while i < len(pattern) and pattern[i] not in ":)>=!":
+                    i += 1
+                i += 1 if pattern[i : i + 1] in (":", ">", "=", "!") else 0
+            continue
+        if char == ")" and len(frames) > 1:
+            inner = frames.pop()
+            after = pattern[i + 1 : i + 2]
+            quantified = after in ("+", "*") or (after == "{" and pattern[i + 2 : i + 3].isdigit())
+            if quantified and inner:
+                return True, unbounded
+            frames[-1] = frames[-1] or inner or quantified
+        elif char == "|":
+            frames[-1] = True
+        elif char in "+*":
+            unbounded += 1
+            frames[-1] = True
+        elif char == "{" and pattern[i + 1 : i + 2].isdigit():
+            frames[-1] = True
+        i += 1
+    return False, unbounded
+
+
+def lint_regex(pattern: str) -> None:
+    """Compile-check a response-check regex and refuse backtracking-prone shapes.
+
+    Heuristic only: Python's ``re`` has no timeout, so this lowers (not removes) the risk.
+    """
+    try:
+        re.compile(pattern)
+    except re.error:
+        raise PayloadError("invalid regex check") from None
+    nested, unbounded = _scan_regex(pattern)
+    if nested:
+        raise PayloadError(
+            "regex check uses a nested quantifier or a quantified alternation "
+            "(catastrophic backtracking risk)"
+        )
+    if unbounded > MAX_UNBOUNDED_QUANTIFIERS:
+        raise PayloadError(
+            f"regex check has more than {MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifiers"
+        )
+
+
 def _check_payload(payload: Payload) -> None:
     lint_template(payload.template)
     for check in payload.checks:
         if check.kind == "regex":
             try:
-                re.compile(check.pattern)
-            except re.error:
-                raise PayloadError(f"payload '{payload.id}' has an invalid regex check") from None
+                lint_regex(check.pattern)
+            except PayloadError as exc:
+                raise PayloadError(f"payload '{payload.id}': {exc}") from None
 
 
 def _build(document: object, base: Path) -> Suite:
@@ -97,7 +181,7 @@ def _build(document: object, base: Path) -> Suite:
 def _builtin_path(name: str) -> Path:
     if not _SUITE_NAME_RE.fullmatch(name):
         raise PayloadError("suite name must be lowercase letters, digits, '_' or '-'")
-    resource = resources.files("injectkit.payloads") / "data" / f"{name}.yaml"
+    resource = resources.files("injectkit.payloads") / "data" / "suites" / f"{name}.yaml"
     path = Path(str(resource))
     if not path.is_file():
         raise PayloadError(f"unknown built-in suite '{name}'")

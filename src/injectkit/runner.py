@@ -5,12 +5,25 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from injectkit import __version__
 from injectkit.config import Limits
+from injectkit.detectors import Detector, evaluate
 from injectkit.errors import InjectKitError, RunPlanError, TargetError
-from injectkit.models import Canary, ErrorInfo, ErrorKind, Exchange, Payload, Suite
+from injectkit.models import (
+    Canary,
+    ErrorInfo,
+    ErrorKind,
+    Exchange,
+    Outcome,
+    Payload,
+    RunResult,
+    Suite,
+)
 from injectkit.payloads.canary import new_canary
 from injectkit.payloads.render import render
 from injectkit.ratelimit import (
@@ -182,3 +195,50 @@ async def collect_exchanges(
             if current is not None:
                 current.uncancel()
     return Collected(tuple(results[i] for i in sorted(results)), interrupted)
+
+
+async def run_suite(
+    target: Target,
+    suite: Suite,
+    settings: RunSettings,
+    detectors: Sequence[Detector],
+    *,
+    redactor: Redactor,
+    target_id: str,
+    limiter: AsyncRateLimiter | None = None,
+    sleep: Sleep = asyncio.sleep,
+    rng: Jitter = random.random,
+) -> RunResult:
+    """The full pipeline: canary -> render -> send -> evaluate, one fresh canary per test."""
+    started_at = datetime.now(UTC)
+    planned = check_plan(suite, settings)
+    collected = await collect_exchanges(
+        target, suite, settings, redactor=redactor, limiter=limiter, sleep=sleep, rng=rng
+    )
+    payloads = {payload.id: payload for payload in suite.payloads}
+    results = tuple(
+        evaluate(exchange, payloads[exchange.payload_id], detectors)
+        for exchange in collected.exchanges
+    )
+    counts = {outcome.value: 0 for outcome in Outcome}
+    for result in results:
+        counts[result.outcome.value] += 1
+    return RunResult(
+        run_id=uuid.uuid4().hex,
+        started_at=started_at,
+        finished_at=datetime.now(UTC),
+        target_id=target_id,
+        suite=suite.name,
+        settings_summary={
+            "concurrency": settings.concurrency,
+            "requests_per_second": settings.requests_per_second,
+            "retries": settings.retries,
+            "max_requests": settings.max_requests,
+            "runs_per_payload": suite.runs_per_payload,
+            "planned_requests": planned,
+        },
+        results=results,
+        counts=counts,
+        tool_version=__version__,
+        interrupted=collected.interrupted,
+    )

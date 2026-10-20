@@ -1,0 +1,13 @@
+# Built-in suite "basic": every payload of the reviewed library.
+# reviewed_by: Claude (AI coding agent, Claude Code session); independent human review PENDING.
+version: 1
+name: basic
+payloads:
+  - include: library/direct_override.yaml
+  - include: library/system_prompt_extraction.yaml
+  - include: library/role_play.yaml
+  - include: library/delimiter_confusion.yaml
+  - include: library/instruction_smuggling.yaml
+  - include: library/canary_exfiltration.yaml
+  - include: library/output_format_abuse.yaml
+  - include: library/context_stuffing.yaml
