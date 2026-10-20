@@ -16,6 +16,8 @@ from injectkit.demo.backends import MODEL_ENV, Backend, OllamaBackend, ScriptedB
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 PUBLIC_ENV = "INJECTKIT_DEMO_ALLOW_PUBLIC"
+MAX_CONNECTIONS = 32
+KEEP_ALIVE_SECONDS = 5
 BANNER = """\
 !!! WARNING: INTENTIONALLY VULNERABLE DEMO BOUND TO A NON-LOOPBACK ADDRESS !!!
 Anyone who can reach this port can talk to a deliberately insecure application.
@@ -88,6 +90,13 @@ def main(argv: Sequence[str] | None = None) -> None:
         if public:
             typer.echo(BANNER, err=True)
         app = create_app(make_backend(backend, os.environ))
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        uvicorn.run(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+            limit_concurrency=MAX_CONNECTIONS,
+            timeout_keep_alive=KEEP_ALIVE_SECONDS,
+        )
 
     cli(args=None if argv is None else list(argv), standalone_mode=True)

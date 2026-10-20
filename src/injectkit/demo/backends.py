@@ -7,6 +7,7 @@ without any model. ``ollama`` forwards to a local Ollama server over loopback HT
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import re
 from typing import Protocol
@@ -25,6 +26,8 @@ REFUSAL = "I'm sorry, but I can't help with that."
 OLLAMA_URL = "http://127.0.0.1:11434"
 MODEL_ENV = "INJECTKIT_DEMO_MODEL"
 OLLAMA_TIMEOUT_SECONDS = 60.0
+OLLAMA_MAX_CONCURRENT = 4
+OLLAMA_MAX_REPLY_BYTES = 64 * 1024
 
 _HALF_A = re.compile(r"INJK-[0-9a-f]{8}")
 _HALF_B = re.compile(r"\b[0-9a-f]{8}\b")
@@ -89,7 +92,10 @@ class ScriptedBackend:
 
 
 def _require_loopback(base_url: str) -> str:
-    host = urlsplit(base_url).hostname or ""
+    parts = urlsplit(base_url)
+    host = parts.hostname or ""
+    if parts.scheme != "http" or parts.username is not None:
+        raise ValueError("the demo Ollama backend needs a plain http loopback URL (loopback only)")
     try:
         is_loopback = host == "localhost" or ipaddress.ip_address(host).is_loopback
     except ValueError:
@@ -104,8 +110,16 @@ class OllamaBackend:
 
     name = "ollama"
 
-    def __init__(self, model: str | None, base_url: str = OLLAMA_URL) -> None:
+    def __init__(
+        self,
+        model: str | None,
+        base_url: str = OLLAMA_URL,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._model = model
+        self._transport = transport
+        self._slots = asyncio.Semaphore(OLLAMA_MAX_CONCURRENT)
         self._base_url = _require_loopback(base_url)
 
     async def reply(self, message: str) -> str:
@@ -120,13 +134,20 @@ class OllamaBackend:
             ],
         }
         try:
-            async with httpx.AsyncClient(timeout=OLLAMA_TIMEOUT_SECONDS, trust_env=False) as client:
+            async with (
+                self._slots,
+                httpx.AsyncClient(
+                    timeout=OLLAMA_TIMEOUT_SECONDS, trust_env=False, transport=self._transport
+                ) as client,
+            ):
                 response = await client.post(f"{self._base_url}/api/chat", json=payload)
-        except httpx.TransportError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
             raise BackendUnavailableError(
                 f"Ollama is not reachable at {self._base_url} ({type(exc).__name__}); "
                 "start it or use --backend scripted"
             ) from None
+        if len(response.content) > OLLAMA_MAX_REPLY_BYTES:
+            raise BackendUnavailableError("Ollama reply is larger than the demo accepts")
         if response.status_code != httpx.codes.OK:
             raise BackendUnavailableError(f"Ollama answered HTTP {response.status_code}")
         try:

@@ -16,11 +16,11 @@ block in the config).
 | 0 | No finding at or above `--fail-on`, and at most half of the tests errored |
 | 1 | At least one finding at or above `--fail-on` (default `confirmed`; `potential` also counts `potential`; `never` disables this) |
 | 2 | Usage, config, suite, output-path or policy error, or a plan above the request cap; nothing was sent |
-| 3 | The run finished but more than half of the tests errored (or an unexpected internal error) |
+| 3 | The run finished but more than half of the tests errored, the report file could not be written (the report is still printed), or an unexpected internal error |
 | 130 | Interrupted (Ctrl+C); partial results are flagged `interrupted` |
 
-Findings win over the error rate: a run with a confirmed finding exits 1 even if many
-tests errored. A clean exit 0 is **not** proof that the target is secure.
+Precedence is 130, then 1, then 3: a run with a confirmed finding exits 1 even if many tests
+errored (stderr then warns with the error count). Exactly half errored is still exit 0. A clean exit 0 is **not** proof that the target is secure.
 
 ## Limits
 
@@ -28,8 +28,9 @@ tests errored. A clean exit 0 is **not** proof that the target is secure.
   sends nothing.
 * `--max-requests` can only lower the cap set in the config (`limits.max_requests`); a plan
   above the effective cap is refused before any request is sent.
-* `--output` is checked before the run (existing path must be a regular file, directory must
-  exist) and written atomically (temp file + `os.replace`). It always receives the JSON report.
+* `--output` is checked before the run (an existing path must be a regular file, the directory
+  must exist, and it must not be the config or suite file) and written atomically (temp file,
+  fsync, `os.replace`) after the report has been printed. It always receives the JSON report.
 * A network policy other than `public_only` prints a warning on stderr.
 
 ## Reports

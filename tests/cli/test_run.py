@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from injectkit import cli
 from injectkit.cli import FailOn, app, exit_code_for
+from injectkit.errors import ReportError
 from injectkit.models import Outcome, RunResult
 
 RunFactory = Callable[..., RunResult]
@@ -279,3 +280,90 @@ def test_exit_code_matrix(
 def test_interrupted_run_maps_to_130(make_run: RunFactory) -> None:
     run = make_run().model_copy(update={"interrupted": True})
     assert exit_code_for(run, FailOn.NEVER) == 130
+
+
+def test_exactly_half_errored_is_not_more_than_half(make_run: RunFactory) -> None:
+    outcomes = (Outcome.ERROR, Outcome.ERROR, Outcome.NO_INDICATOR, Outcome.NO_INDICATOR)
+    assert exit_code_for(make_run(outcomes=outcomes), FailOn.CONFIRMED) == 0
+
+
+def test_just_over_half_errored_exits_3(make_run: RunFactory) -> None:
+    outcomes = (Outcome.ERROR, Outcome.ERROR, Outcome.ERROR, Outcome.NO_INDICATOR)
+    assert exit_code_for(make_run(outcomes=outcomes), FailOn.CONFIRMED) == 3
+
+
+def test_an_empty_uninterrupted_run_exits_0(make_run: RunFactory) -> None:
+    assert exit_code_for(make_run(outcomes=()), FailOn.CONFIRMED) == 0
+
+
+def test_errors_produce_a_warning_with_the_count_on_stderr(tmp_path: Path) -> None:
+    with respx.mock:
+        respx.post(URL).mock(return_value=httpx.Response(500, json={"error": "x"}))
+        result = invoke_run(tmp_path)
+    assert f"warning: {QUICK_SIZE} of {QUICK_SIZE} tests ended in an error" in result.stderr
+
+
+def test_a_run_without_errors_prints_no_error_warning(tmp_path: Path) -> None:
+    with respx.mock:
+        respx.post(URL).mock(side_effect=refusing)
+        result = invoke_run(tmp_path)
+    assert "tests ended in an error" not in result.stderr
+
+
+def test_interrupted_partial_run_is_reported_and_exits_130(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_run: RunFactory
+) -> None:
+    partial = make_run().model_copy(update={"interrupted": True})
+    monkeypatch.setattr(cli, "_execute", lambda *args, **kwargs: partial)
+    out = tmp_path / "partial.json"
+    result = invoke_run(tmp_path, "--output", str(out))
+    assert result.exit_code == 130
+    assert "interrupted" in result.stdout
+    assert json.loads(out.read_text(encoding="utf-8"))["run"]["interrupted"] is True
+
+
+def test_report_is_printed_even_when_the_file_cannot_be_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing(path: Path, data: str) -> None:
+        raise ReportError("could not write the report")
+
+    monkeypatch.setattr(cli, "write_atomic", failing)
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        result = invoke_run(tmp_path, "--output", str(tmp_path / "r.json"))
+    assert result.exit_code == 3
+    assert "Findings (8)" in result.stdout
+    assert "could not write the report" in result.stderr
+
+
+def test_output_may_not_overwrite_the_config_file(tmp_path: Path) -> None:
+    config = write_config(tmp_path)
+    original = config.read_text(encoding="utf-8")
+    with respx.mock:
+        route = respx.post(URL).mock(side_effect=refusing)
+        result = runner.invoke(
+            app, ["run", str(config), "--suite", "quick", "--output", str(config)], env=ENV
+        )
+    assert result.exit_code == 2
+    assert route.call_count == 0
+    assert config.read_text(encoding="utf-8") == original
+
+
+def test_output_may_not_overwrite_a_suite_file(tmp_path: Path) -> None:
+    suite = tmp_path / "mine.yml"
+    suite.write_text("version: 1\nname: mine\npayloads: []\n", encoding="utf-8")
+    config = write_config(tmp_path)
+    result = runner.invoke(
+        app, ["run", str(config), "--suite", str(suite), "--output", str(suite)], env=ENV
+    )
+    assert result.exit_code == 2
+
+
+def test_yml_suites_are_treated_as_paths(tmp_path: Path) -> None:
+    config = write_config(tmp_path)
+    result = runner.invoke(
+        app, ["run", str(config), "--suite", str(tmp_path / "absent.yml")], env=ENV
+    )
+    assert result.exit_code == 2
+    assert "unknown built-in suite" not in result.stderr

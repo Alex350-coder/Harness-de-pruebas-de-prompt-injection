@@ -17,7 +17,7 @@ from injectkit import __version__
 from injectkit.check import probe, safe_excerpt
 from injectkit.config import ResolvedTarget, load_config
 from injectkit.detectors import build_detectors
-from injectkit.errors import InjectKitError, TargetError
+from injectkit.errors import InjectKitError, ReportError, TargetError
 from injectkit.models import ErrorKind, Outcome, RunResult, Suite
 from injectkit.payloads.loader import load_suite
 from injectkit.redact import Redactor, strip_control
@@ -171,8 +171,20 @@ def exit_code_for(run: RunResult, fail_on: FailOn) -> int:
 
 
 def _load_suite(name_or_path: str) -> Suite:
-    is_path = "/" in name_or_path or "\\" in name_or_path or name_or_path.endswith(".yaml")
+    is_path = (
+        "/" in name_or_path
+        or "\\" in name_or_path
+        or Path(name_or_path).suffix.lower() in {".yaml", ".yml"}
+    )
     return load_suite(Path(name_or_path) if is_path else name_or_path)
+
+
+def _check_output_target(output: Path, *inputs: Path) -> None:
+    """Refuse to write the report over the config or suite file that drives the run."""
+    check_output_path(output)
+    resolved = output.resolve()
+    if any(resolved == path.resolve() for path in inputs):
+        raise ReportError("--output must not be the config or suite file")
 
 
 def _print_plan(
@@ -224,21 +236,30 @@ def _emit(
     output: Path | None,
     include_responses: bool,
 ) -> None:
-    """Print the chosen report and, when asked, write the JSON file atomically."""
+    """Print the chosen report first, then write the JSON file atomically when asked.
+
+    Printing comes first so a failing file write (full disk, locked file) never loses the
+    results of a run whose requests were already sent.
+    """
     url = resolved.config.request.url
     document = None
     if output_format is OutputFormat.JSON or output is not None:
         document = to_json(
             result, resolved.redactor, target_url=url, include_responses=include_responses
         )
-    if output is not None and document is not None:
-        write_atomic(output, document)
     if output_format is OutputFormat.JSON and document is not None:
         typer.echo(document, nl=False)
     else:
         render_console(result, Console(), redactor=resolved.redactor, target_url=url)
-    if output is not None:
+    if output is not None and document is not None:
+        write_atomic(output, document)
         typer.echo(f"report written to {_clean(str(output))}", err=True)
+
+
+def _warn_errors(result: RunResult) -> None:
+    errors = result.counts.get(Outcome.ERROR.value, 0)
+    if errors:
+        typer.echo(f"warning: {errors} of {len(result.results)} tests ended in an error", err=True)
 
 
 @app.command()
@@ -270,7 +291,9 @@ def run(
     """Run a payload suite against the target and report findings.
 
     Exit codes: 0 clean; 1 findings at/above --fail-on; 2 usage, config or policy error;
-    3 more than half of the tests errored; 130 interrupted.
+    3 more than half of the tests errored, or the report file could not be written;
+    130 interrupted. Precedence: 130, then 1, then 3, so a confirmed finding still exits 1
+    when many tests errored (a warning on stderr shows the error count).
 
     A clean run is not proof of safety.
     """
@@ -284,7 +307,9 @@ def run(
         settings = RunSettings.from_limits(limits, max_requests=cap)
         planned = check_plan(suite_obj, settings)
         if output is not None:
-            check_output_path(output)
+            suite_file = Path(suite) if Path(suite).suffix.lower() in {".yaml", ".yml"} else None
+            inputs = (config_path,) if suite_file is None else (config_path, suite_file)
+            _check_output_target(output, *inputs)
     except InjectKitError as exc:
         raise _fail(exc) from exc
     _warn_policy(resolved)
@@ -294,6 +319,8 @@ def run(
     try:
         result = _execute(resolved, suite_obj, settings, include_responses)
         _emit(result, resolved, output_format, output, include_responses)
+    except ReportError as exc:
+        raise _fail(exc, EXIT_EXECUTION) from None
     except InjectKitError as exc:
         raise _fail(exc) from None
     except KeyboardInterrupt:
@@ -301,6 +328,7 @@ def run(
         raise typer.Exit(EXIT_INTERRUPTED) from None
     except Exception as exc:  # last-resort boundary: only the exception type is shown
         raise _fail(RuntimeError(type(exc).__name__), EXIT_EXECUTION) from None
+    _warn_errors(result)
     code = exit_code_for(result, fail_on)
     if code:
         raise typer.Exit(code)

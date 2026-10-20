@@ -142,3 +142,15 @@ def test_run_without_findings_says_it_proves_nothing(make_run: RunFactory) -> No
     assert "Findings (0)" in output
     assert "does not prove the target is secure" in output
     assert "Errors" not in output
+
+
+def test_text_the_stream_cannot_encode_is_escaped_instead_of_crashing(
+    make_run: RunFactory,
+) -> None:
+    raw = io.BytesIO()
+    stream = io.TextIOWrapper(raw, encoding="cp1252", errors="strict", write_through=True)
+    console = Console(file=stream, width=100)
+    render_console(make_run(evidence="arrow \u2192 and \u65e5\u672c"), console, redactor=Redactor())
+    output = raw.getvalue().decode("cp1252")
+    assert "\\u2192" in output
+    assert "No indicator != secure" in output

@@ -1,4 +1,6 @@
-from collections.abc import AsyncIterator
+import json
+import socket
+from collections.abc import AsyncIterator, Callable
 
 import httpx
 import pytest
@@ -18,7 +20,15 @@ from injectkit.payloads.loader import load_suite
 from injectkit.payloads.render import render
 
 PUBLIC_HOST = "192.0.2.10"  # TEST-NET-1: any non-loopback address
-UNREACHABLE_OLLAMA = "http://127.0.0.1:1"  # a real port nobody listens on
+JSON_HEADERS = {"content-type": "application/json"}
+
+
+def closed_port_url() -> str:
+    """A loopback URL whose port was just released, so nothing is listening on it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return f"http://127.0.0.1:{port}"
 
 
 def client_for(app: FastAPI) -> httpx.AsyncClient:
@@ -90,7 +100,7 @@ async def test_docs_and_openapi_are_not_exposed() -> None:
 )
 async def test_invalid_chat_requests_are_rejected_with_422(body: bytes) -> None:
     async with client_for(create_app(ScriptedBackend())) as client:
-        response = await client.post("/chat", content=body)
+        response = await client.post("/chat", content=body, headers=JSON_HEADERS)
     assert response.status_code == 422
 
 
@@ -108,12 +118,12 @@ async def test_oversized_streamed_body_is_rejected_without_content_length() -> N
 
     app = create_app(ScriptedBackend(), max_body_bytes=300)
     async with client_for(app) as client:
-        response = await client.post("/chat", content=chunks())
+        response = await client.post("/chat", content=chunks(), headers=JSON_HEADERS)
     assert response.status_code == 413
 
 
 async def test_ollama_failure_yields_503_with_a_clear_message() -> None:
-    backend = OllamaBackend("some-model", base_url=UNREACHABLE_OLLAMA)
+    backend = OllamaBackend("some-model", base_url=closed_port_url())
     async with client_for(create_app(backend)) as client:
         response = await client.post("/chat", json=chat_body("hello"))
     assert response.status_code == 503
@@ -121,7 +131,7 @@ async def test_ollama_failure_yields_503_with_a_clear_message() -> None:
 
 
 async def test_ollama_without_a_model_yields_503_naming_the_variable() -> None:
-    backend = OllamaBackend(None, base_url=UNREACHABLE_OLLAMA)
+    backend = OllamaBackend(None, base_url=closed_port_url())
     async with client_for(create_app(backend)) as client:
         response = await client.post("/chat", json=chat_body("hello"))
     assert response.status_code == 503
@@ -202,3 +212,109 @@ def test_entry_point_defaults_to_loopback(monkeypatch: pytest.MonkeyPatch) -> No
 def test_make_backend_selects_by_name() -> None:
     assert demo_cli.make_backend(demo_cli.BackendName.SCRIPTED, {}).name == "scripted"
     assert demo_cli.make_backend(demo_cli.BackendName.OLLAMA, {}).name == "ollama"
+
+
+async def test_non_json_content_type_is_rejected_with_415() -> None:
+    async with client_for(create_app(ScriptedBackend())) as client:
+        response = await client.post(
+            "/chat", content=json.dumps(chat_body("hi")), headers={"content-type": "text/plain"}
+        )
+    assert response.status_code == 415
+
+
+async def test_default_body_limit_is_16_kib_to_the_byte() -> None:
+    def body_of(size: int) -> bytes:
+        base = len(json.dumps(chat_body("")).encode())
+        return json.dumps(chat_body("a" * (size - base))).encode()
+
+    async with client_for(create_app(ScriptedBackend())) as client:
+        at_limit = await client.post("/chat", content=body_of(16384), headers=JSON_HEADERS)
+        over_limit = await client.post("/chat", content=body_of(16385), headers=JSON_HEADERS)
+    assert at_limit.status_code == 200
+    assert over_limit.status_code == 413
+
+
+async def test_malformed_content_length_does_not_crash_the_app() -> None:
+    async with client_for(create_app(ScriptedBackend())) as client:
+        request = client.build_request("POST", "/chat", content=b"{}", headers=JSON_HEADERS)
+        request.headers["content-length"] = "\u00b2"
+        response = await client.send(request)
+    assert response.status_code == 422
+
+
+def ollama_with(handler: Callable[[httpx.Request], httpx.Response]) -> OllamaBackend:
+    return OllamaBackend("m", transport=httpx.MockTransport(handler))
+
+
+async def test_ollama_success_returns_the_model_text() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent = json.loads(request.content)
+        assert sent["model"] == "m"
+        assert sent["messages"][0]["role"] == "system"
+        return httpx.Response(200, json={"message": {"content": "hi there"}})
+
+    assert await ollama_with(handler).reply("hello") == "hi there"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(500, text="boom"),
+        httpx.Response(200, text="not json"),
+        httpx.Response(200, json={"message": {"content": 42}}),
+        httpx.Response(200, json={"unexpected": True}),
+    ],
+)
+async def test_ollama_bad_answers_become_503(response: httpx.Response) -> None:
+    backend = ollama_with(lambda request: response)
+    async with client_for(create_app(backend)) as client:
+        answer = await client.post("/chat", json=chat_body("hello"))
+    assert answer.status_code == 503
+
+
+async def test_ollama_timeout_becomes_503() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow", request=request)
+
+    async with client_for(create_app(ollama_with(handler))) as client:
+        answer = await client.post("/chat", json=chat_body("hello"))
+    assert answer.status_code == 503
+    assert "not reachable" in answer.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1@evil.example:11434",
+        "http://localhost.evil.example:11434",
+        "http://evil.example:11434",
+        "http://" + ".".join(["0"] * 4) + ":11434",
+        "http://:11434",
+    ],
+)
+def test_ollama_backend_rejects_lookalike_hosts(url: str) -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        OllamaBackend("m", base_url=url)
+
+
+def test_ollama_backend_accepts_ipv6_loopback() -> None:
+    OllamaBackend("m", base_url="http://[::1]:11434")
+
+
+@pytest.mark.parametrize("host", ["", ".".join(["0"] * 4), "example.com"])
+def test_other_hosts_are_not_loopback(host: str) -> None:
+    assert is_loopback_host(host) is False
+
+
+@pytest.mark.parametrize("url", ["https://127.0.0.1:11434", "http://user@127.0.0.1:11434"])
+def test_ollama_backend_needs_a_plain_http_loopback_url(url: str) -> None:
+    with pytest.raises(ValueError, match="loopback"):
+        OllamaBackend("m", base_url=url)
+
+
+async def test_oversized_ollama_reply_becomes_503() -> None:
+    big = {"message": {"content": "x" * (64 * 1024 + 1)}}
+    backend = ollama_with(lambda request: httpx.Response(200, json=big))
+    async with client_for(create_app(backend)) as client:
+        answer = await client.post("/chat", json=chat_body("hello"))
+    assert answer.status_code == 503

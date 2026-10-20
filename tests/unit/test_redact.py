@@ -93,3 +93,14 @@ def test_masks_base64_and_lowercase_percent_encoding() -> None:
 
 def test_strip_control_removes_bidi_and_zero_width() -> None:
     assert strip_control("a\u202eb\u200bc\u2066d\ufeffe") == "abcde"
+
+
+def test_strip_control_removes_invisible_smuggling_characters() -> None:
+    hidden = "\u2028\u2029\u2060\u2064\u061c\u180e\ufff9\ufffb" + "".join(
+        chr(0xE0000 + i) for i in (1, 0x41, 0x7F)
+    )
+    assert strip_control(f"a{hidden}b") == "ab"
+
+
+def test_strip_control_keeps_newline_tab_and_ordinary_unicode() -> None:
+    assert strip_control("a\tb\nc \u00e9\u4e2d") == "a\tb\nc \u00e9\u4e2d"

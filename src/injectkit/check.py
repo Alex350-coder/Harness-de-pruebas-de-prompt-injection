@@ -31,7 +31,7 @@ async def probe(resolved: ResolvedTarget) -> ProbeResult:
 
 def safe_excerpt(resolved: ResolvedTarget, text: str) -> str:
     """Redacted, control-stripped, truncated text for terminal display."""
-    cleaned = strip_control(resolved.redactor.mask(text))
+    cleaned = strip_control(resolved.redactor.mask(strip_control(text)))
     if len(cleaned) <= MAX_SHOWN_CHARS:
         return cleaned
     return f"{cleaned[:MAX_SHOWN_CHARS]}… (truncated)"

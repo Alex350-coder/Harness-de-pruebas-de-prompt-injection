@@ -204,7 +204,7 @@ def _with_excerpt(
 ) -> TestResult:
     if not include or exchange.response_text is None:
         return result
-    cleaned = strip_control(redactor.mask(exchange.response_text))
+    cleaned = strip_control(redactor.mask(strip_control(exchange.response_text)))
     excerpt = cleaned[:MAX_RESPONSE_EXCERPT_CHARS]
     return result.model_copy(
         update={"response_excerpt": excerpt, "response_truncated": len(cleaned) > len(excerpt)}

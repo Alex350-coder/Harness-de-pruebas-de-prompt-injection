@@ -232,3 +232,39 @@ def _run_library(resolved: ResolvedTarget) -> RunResult:
             )
 
     return asyncio.run(go())
+
+
+def test_secret_split_by_invisible_characters_is_masked_in_response_excerpts(
+    tmp_path: Path,
+) -> None:
+    def sneaky(request: httpx.Request) -> httpx.Response:
+        message: str = json.loads(request.content)["messages"][0]["content"]
+        head = HALF_A.search(message)
+        assert head is not None
+        tail = HALF_B.search(message.replace(head.group(0), ""))
+        assert tail is not None
+        split_fragment = ENV_FRAGMENT[:6] + "\u200b" + ENV_FRAGMENT[6:]
+        split_literal = LITERAL_FRAGMENT[:4] + "\x1b[0m" + LITERAL_FRAGMENT[4:]
+        reply = f"{split_fragment} {split_literal} {head.group(0)}{tail.group(0)}"
+        return httpx.Response(200, json={"reply": reply})
+
+    out = tmp_path / "report.json"
+    with respx.mock:
+        respx.post(URL).mock(side_effect=sneaky)
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(write_config(tmp_path)),
+                "--suite",
+                "quick",
+                "--format",
+                "json",
+                "--output",
+                str(out),
+                "--include-responses",
+            ],
+            env=ENV,
+        )
+    assert result.exit_code == 1, result.output
+    assert_clean(result.stdout, result.stderr, out.read_text(encoding="utf-8"))

@@ -32,7 +32,12 @@ class ChatResponse(BaseModel):
 
 async def _bounded_body(request: Request, limit: int) -> bytes:
     declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > limit:
+    if (
+        declared is not None
+        and declared.isascii()
+        and declared.isdecimal()
+        and int(declared) > limit
+    ):
         raise HTTPException(status_code=413, detail="request body too large")
     received = bytearray()
     async for chunk in request.stream():
@@ -58,6 +63,10 @@ def create_app(backend: Backend, *, max_body_bytes: int = MAX_BODY_BYTES) -> Fas
 
     @app.post("/chat")
     async def chat(request: Request) -> ChatResponse:
+        media_type = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if media_type != "application/json":
+            # Forces a CORS preflight for cross-site pages, so they cannot reach the backend.
+            raise HTTPException(status_code=415, detail="content-type must be application/json")
         raw = await _bounded_body(request, max_body_bytes)
         try:
             body = ChatRequest.model_validate_json(raw)

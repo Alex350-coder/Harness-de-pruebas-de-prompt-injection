@@ -25,7 +25,7 @@ def check_output_path(path: Path) -> None:
     """Raise `ReportError` early if `path` could not be written atomically."""
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise ReportError(f"refusing to overwrite '{path}': not a regular file")
-    directory = path.parent if str(path.parent) else Path()
+    directory = path.parent
     if not directory.is_dir():
         raise ReportError(f"output directory '{directory}' does not exist")
 
@@ -41,8 +41,15 @@ def write_atomic(path: Path, data: str) -> None:
     tmp_name: str | None = None
     try:
         fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".injectkit-", suffix=".tmp")
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        except OSError:
+            os.close(fd)
+            raise
+        with handle:
             handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp_name, path)
         tmp_name = None
     except OSError as exc:

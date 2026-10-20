@@ -35,6 +35,8 @@ class DemoServer:
         self.thread.start()
         deadline = time.monotonic() + STARTUP_TIMEOUT_SECONDS
         while not self.server.started:
+            if not self.thread.is_alive():
+                raise RuntimeError("demo server thread exited during startup")
             if time.monotonic() > deadline:
                 raise RuntimeError("demo server did not start")
             time.sleep(0.02)
@@ -43,6 +45,8 @@ class DemoServer:
     def stop(self) -> None:
         self.server.should_exit = True
         self.thread.join(timeout=STARTUP_TIMEOUT_SECONDS)
+        if self.thread.is_alive():
+            raise RuntimeError("demo server thread did not stop")
 
 
 def port_is_listening(port: int) -> bool:
@@ -54,16 +58,18 @@ def port_is_listening(port: int) -> bool:
 @pytest.fixture
 def demo_port() -> Iterator[int]:
     server = DemoServer()
-    server.start()
     try:
+        server.start()
         yield server.port
     finally:
         server.stop()
-        assert not port_is_listening(server.port), "demo server left a listening socket"
+    assert not port_is_listening(server.port), "demo server left a listening socket"
 
 
 def demo_config(tmp_path: Path, port: int) -> Path:
     text = EXAMPLE.read_text(encoding="utf-8")
+    for placeholder in ("127.0.0.1:8000", "requests_per_second: 10"):
+        assert placeholder in text, f"examples/demo-target.yaml no longer contains {placeholder!r}"
     text = text.replace("127.0.0.1:8000", f"127.0.0.1:{port}")
     text = text.replace("requests_per_second: 10", "requests_per_second: 50")
     path = tmp_path / "demo-target.yaml"
