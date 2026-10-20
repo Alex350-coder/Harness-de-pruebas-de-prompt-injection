@@ -92,7 +92,7 @@ class Exchange(_Model):
     payload_id: str
     canary: Canary
     request_text: str  # already redacted
-    response_text: str | None
+    response_text: str | None = Field(repr=False)  # raw and unmasked: never shown in a repr
     status_code: int | None
     error: ErrorInfo | None
     started_at: datetime

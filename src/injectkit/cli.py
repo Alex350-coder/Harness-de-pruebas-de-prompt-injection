@@ -217,6 +217,30 @@ def _execute(
         )
 
 
+def _emit(
+    result: RunResult,
+    resolved: ResolvedTarget,
+    output_format: OutputFormat,
+    output: Path | None,
+    include_responses: bool,
+) -> None:
+    """Print the chosen report and, when asked, write the JSON file atomically."""
+    url = resolved.config.request.url
+    document = None
+    if output_format is OutputFormat.JSON or output is not None:
+        document = to_json(
+            result, resolved.redactor, target_url=url, include_responses=include_responses
+        )
+    if output is not None and document is not None:
+        write_atomic(output, document)
+    if output_format is OutputFormat.JSON and document is not None:
+        typer.echo(document, nl=False)
+    else:
+        render_console(result, Console(), redactor=resolved.redactor, target_url=url)
+    if output is not None:
+        typer.echo(f"report written to {_clean(str(output))}", err=True)
+
+
 @app.command()
 def run(
     config_path: Annotated[Path, typer.Argument(help="Path to the target YAML config.")],
@@ -269,34 +293,14 @@ def run(
         return
     try:
         result = _execute(resolved, suite_obj, settings, include_responses)
-        document = None
-        if output_format is OutputFormat.JSON or output is not None:
-            document = to_json(
-                result,
-                resolved.redactor,
-                target_url=resolved.config.request.url,
-                include_responses=include_responses,
-            )
-        if output is not None and document is not None:
-            write_atomic(output, document)
+        _emit(result, resolved, output_format, output, include_responses)
     except InjectKitError as exc:
-        raise _fail(exc) from exc
+        raise _fail(exc) from None
     except KeyboardInterrupt:
         typer.echo("interrupted", err=True)
         raise typer.Exit(EXIT_INTERRUPTED) from None
-    except Exception as exc:  # last-resort boundary: redacted one-liner, never a raw traceback
-        raise _fail(RuntimeError(type(exc).__name__), EXIT_EXECUTION) from exc
-    if output_format is OutputFormat.JSON and document is not None:
-        typer.echo(document, nl=False)
-    else:
-        render_console(
-            result,
-            Console(),
-            redactor=resolved.redactor,
-            target_url=resolved.config.request.url,
-        )
-    if output is not None:
-        typer.echo(f"report written to {_clean(str(output))}", err=True)
+    except Exception as exc:  # last-resort boundary: only the exception type is shown
+        raise _fail(RuntimeError(type(exc).__name__), EXIT_EXECUTION) from None
     code = exit_code_for(result, fail_on)
     if code:
         raise typer.Exit(code)
