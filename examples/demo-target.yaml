@@ -1,0 +1,35 @@
+# Target config for the local, intentionally vulnerable demo (see docs/demo.md).
+#
+#   uv run injectkit-demo                                   # terminal 1
+#   uv run injectkit run examples/demo-target.yaml          # terminal 2
+#
+# It talks to 127.0.0.1 only, hence network.policy: loopback.
+version: 1
+authorization:
+  confirmed: true
+  scope_note: "Local demo app started by me on loopback"
+name: injectkit-demo
+request:
+  url: http://127.0.0.1:8000/chat
+  method: POST
+  headers:
+    Content-Type: application/json
+  body:
+    messages:
+      - role: user
+        content: "{{payload}}"
+response:
+  path: reply
+  max_bytes: 65536
+secret_fragments:
+  # FAKE value published in this repository; it appears in the demo's system prompt only.
+  - id: demo-fragment
+    value: "DEMO-FAKE-SECRET-7f3a91"
+limits:
+  timeout_seconds: 10
+  concurrency: 4
+  requests_per_second: 10
+  retries: 1
+  max_requests: 100
+network:
+  policy: loopback
