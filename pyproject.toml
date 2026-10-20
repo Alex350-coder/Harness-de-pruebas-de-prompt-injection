@@ -21,6 +21,7 @@ demo = ["fastapi>=0.110", "uvicorn>=0.29"]
 
 [project.scripts]
 injectkit = "injectkit.cli:app"
+injectkit-demo = "injectkit.demo.cli:main"
 
 [dependency-groups]
 dev = [
