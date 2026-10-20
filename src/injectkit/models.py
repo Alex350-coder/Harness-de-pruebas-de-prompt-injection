@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_EVIDENCE_CHARS = 300
 MAX_CHECK_PATTERN_CHARS = 200
+MAX_RESPONSE_EXCERPT_CHARS = 2048
 
 
 class Severity(StrEnum):
@@ -129,6 +130,9 @@ class TestResult(_Model):
     findings: tuple[Finding, ...] = ()
     error: ErrorInfo | None = None
     duration_ms: float = Field(ge=0)
+    # Redacted, control-stripped response text; only filled when the caller asks for it.
+    response_excerpt: str | None = Field(default=None, max_length=MAX_RESPONSE_EXCERPT_CHARS)
+    response_truncated: bool = False
 
     @model_validator(mode="after")
     def _consistent(self) -> Self:

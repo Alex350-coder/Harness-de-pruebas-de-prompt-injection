@@ -1,0 +1,351 @@
+{
+  "$defs": {
+    "Confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "ErrorInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ErrorKind"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "title": "ErrorInfo",
+      "type": "object"
+    },
+    "ErrorKind": {
+      "enum": [
+        "timeout",
+        "connect",
+        "http_status",
+        "malformed_response",
+        "response_too_large",
+        "policy",
+        "extraction",
+        "internal"
+      ],
+      "title": "ErrorKind",
+      "type": "string"
+    },
+    "Finding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "confidence": {
+          "$ref": "#/$defs/Confidence"
+        },
+        "detector": {
+          "title": "Detector",
+          "type": "string"
+        },
+        "evidence": {
+          "maxLength": 300,
+          "title": "Evidence",
+          "type": "string"
+        },
+        "limitations": {
+          "title": "Limitations",
+          "type": "string"
+        },
+        "matched_indicator": {
+          "title": "Matched Indicator",
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        },
+        "payload_id": {
+          "title": "Payload Id",
+          "type": "string"
+        },
+        "remediation": {
+          "title": "Remediation",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "target_id": {
+          "title": "Target Id",
+          "type": "string"
+        },
+        "test_id": {
+          "title": "Test Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "date-time",
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "test_id",
+        "payload_id",
+        "category",
+        "detector",
+        "severity",
+        "confidence",
+        "outcome",
+        "evidence",
+        "matched_indicator",
+        "target_id",
+        "timestamp",
+        "remediation",
+        "limitations"
+      ],
+      "title": "Finding",
+      "type": "object"
+    },
+    "Outcome": {
+      "enum": [
+        "confirmed",
+        "potential",
+        "inconclusive",
+        "no_indicator",
+        "error"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "RunInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "finished_at": {
+          "format": "date-time",
+          "title": "Finished At",
+          "type": "string"
+        },
+        "interrupted": {
+          "title": "Interrupted",
+          "type": "boolean"
+        },
+        "run_id": {
+          "title": "Run Id",
+          "type": "string"
+        },
+        "settings": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Settings",
+          "type": "object"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "suite": {
+          "title": "Suite",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "suite",
+        "started_at",
+        "finished_at",
+        "interrupted",
+        "settings"
+      ],
+      "title": "RunInfo",
+      "type": "object"
+    },
+    "Severity": {
+      "enum": [
+        "info",
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "TargetInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Url"
+        }
+      },
+      "required": [
+        "id",
+        "url"
+      ],
+      "title": "TargetInfo",
+      "type": "object"
+    },
+    "TestResult": {
+      "additionalProperties": false,
+      "properties": {
+        "duration_ms": {
+          "minimum": 0,
+          "title": "Duration Ms",
+          "type": "number"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Finding"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        },
+        "payload_id": {
+          "title": "Payload Id",
+          "type": "string"
+        },
+        "response_excerpt": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Response Excerpt"
+        },
+        "response_truncated": {
+          "default": false,
+          "title": "Response Truncated",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "payload_id",
+        "outcome",
+        "duration_ms"
+      ],
+      "title": "TestResult",
+      "type": "object"
+    },
+    "ToolInfo": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "injectkit",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "ToolInfo",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The JSON document layout (also the source of ``docs/report-schema.json``).",
+  "properties": {
+    "disclaimer": {
+      "title": "Disclaimer",
+      "type": "string"
+    },
+    "results": {
+      "items": {
+        "$ref": "#/$defs/TestResult"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "run": {
+      "$ref": "#/$defs/RunInfo"
+    },
+    "schema_version": {
+      "const": "1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "summary": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Summary",
+      "type": "object"
+    },
+    "target": {
+      "$ref": "#/$defs/TargetInfo"
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolInfo"
+    }
+  },
+  "required": [
+    "schema_version",
+    "tool",
+    "target",
+    "run",
+    "summary",
+    "results",
+    "disclaimer"
+  ],
+  "title": "JsonReport",
+  "type": "object"
+}

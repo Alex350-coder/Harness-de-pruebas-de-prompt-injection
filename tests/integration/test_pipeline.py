@@ -235,3 +235,28 @@ async def test_oversized_plan_is_refused_before_any_request() -> None:
         )
 
     assert route.call_count == 0
+
+
+@respx.mock
+async def test_response_excerpts_are_kept_only_on_request_and_are_redacted() -> None:
+    respx.post(URL).mock(side_effect=behave)
+    suite = make_suite(payload("leak", "LEAK"))
+    target_resolved = resolved()
+    target = HttpTarget(target_resolved, resolver=public_resolver)
+
+    kept = await run_suite(
+        target,
+        suite,
+        run_settings(),
+        build_detectors(target_resolved),
+        redactor=target_resolved.redactor,
+        target_id="t",
+        include_responses=True,
+    )
+    plain = await execute(suite)
+
+    excerpt = kept.results[0].response_excerpt
+    assert excerpt is not None
+    assert "Internal note" in excerpt
+    assert FRAGMENT not in excerpt
+    assert plain.results[0].response_excerpt is None

@@ -15,6 +15,7 @@ from injectkit.config import Limits
 from injectkit.detectors import Detector, evaluate
 from injectkit.errors import InjectKitError, RunPlanError, TargetError
 from injectkit.models import (
+    MAX_RESPONSE_EXCERPT_CHARS,
     Canary,
     ErrorInfo,
     ErrorKind,
@@ -23,6 +24,7 @@ from injectkit.models import (
     Payload,
     RunResult,
     Suite,
+    TestResult,
 )
 from injectkit.payloads.canary import new_canary
 from injectkit.payloads.render import render
@@ -33,7 +35,7 @@ from injectkit.ratelimit import (
     Sleep,
     call_with_retries,
 )
-from injectkit.redact import Redactor
+from injectkit.redact import Redactor, strip_control
 from injectkit.targets.base import Target, TargetResponse
 
 
@@ -197,6 +199,18 @@ async def collect_exchanges(
     return Collected(tuple(results[i] for i in sorted(results)), interrupted)
 
 
+def _with_excerpt(
+    result: TestResult, exchange: Exchange, redactor: Redactor, include: bool
+) -> TestResult:
+    if not include or exchange.response_text is None:
+        return result
+    cleaned = strip_control(redactor.mask(exchange.response_text))
+    excerpt = cleaned[:MAX_RESPONSE_EXCERPT_CHARS]
+    return result.model_copy(
+        update={"response_excerpt": excerpt, "response_truncated": len(cleaned) > len(excerpt)}
+    )
+
+
 async def run_suite(
     target: Target,
     suite: Suite,
@@ -208,8 +222,12 @@ async def run_suite(
     limiter: AsyncRateLimiter | None = None,
     sleep: Sleep = asyncio.sleep,
     rng: Jitter = random.random,
+    include_responses: bool = False,
 ) -> RunResult:
-    """The full pipeline: canary -> render -> send -> evaluate, one fresh canary per test."""
+    """The full pipeline: canary -> render -> send -> evaluate, one fresh canary per test.
+
+    With ``include_responses`` each result also carries a redacted, truncated response excerpt.
+    """
     started_at = datetime.now(UTC)
     planned = check_plan(suite, settings)
     collected = await collect_exchanges(
@@ -217,7 +235,12 @@ async def run_suite(
     )
     payloads = {payload.id: payload for payload in suite.payloads}
     results = tuple(
-        evaluate(exchange, payloads[exchange.payload_id], detectors)
+        _with_excerpt(
+            evaluate(exchange, payloads[exchange.payload_id], detectors),
+            exchange,
+            redactor,
+            include_responses,
+        )
         for exchange in collected.exchanges
     )
     counts = {outcome.value: 0 for outcome in Outcome}
