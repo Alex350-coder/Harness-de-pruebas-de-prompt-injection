@@ -79,13 +79,14 @@ def test_debug_flag_prints_redacted_traceback(tmp_path: Path) -> None:
     assert "Traceback" in result.output
 
 
-def test_help_lists_only_implemented_commands() -> None:
+def test_help_lists_the_implemented_commands() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     assert "validate" in result.stdout
     assert "version" in result.stdout
     assert "check-target" in result.stdout
-    assert not re.search(r"\brun\b", result.stdout)  # `run` arrives in Phase 4
+    assert re.search(r"\brun\b", result.stdout)
+    assert not re.search(r"\bsarif\b", result.stdout)  # SARIF output arrives in Phase 5
 
 
 def test_debug_traceback_never_prints_literal_credentials(tmp_path: Path) -> None:

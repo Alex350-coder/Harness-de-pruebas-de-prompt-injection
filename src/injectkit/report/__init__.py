@@ -21,17 +21,23 @@ def sanitize_url(url: str) -> str:
     return f"{parts.scheme}://{host}{port}{parts.path}"
 
 
+def check_output_path(path: Path) -> None:
+    """Raise `ReportError` early if `path` could not be written atomically."""
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        raise ReportError(f"refusing to overwrite '{path}': not a regular file")
+    directory = path.parent if str(path.parent) else Path()
+    if not directory.is_dir():
+        raise ReportError(f"output directory '{directory}' does not exist")
+
+
 def write_atomic(path: Path, data: str) -> None:
     """Write ``data`` to ``path`` via a temp file and ``os.replace``.
 
     Refuses to touch anything that exists and is not a regular file (directories, devices,
     symlinks). The temp file is created with owner-only permissions in the same directory.
     """
-    if path.is_symlink() or (path.exists() and not path.is_file()):
-        raise ReportError(f"refusing to overwrite '{path}': not a regular file")
-    directory = path.parent if str(path.parent) else Path()
-    if not directory.is_dir():
-        raise ReportError(f"output directory '{directory}' does not exist")
+    check_output_path(path)
+    directory = path.parent
     tmp_name: str | None = None
     try:
         fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=".injectkit-", suffix=".tmp")
