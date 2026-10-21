@@ -1,5 +1,6 @@
 name: CI
 
+# No `pull_request_target` anywhere: fork PRs run with a read-only token and no secrets.
 on:
   push:
   pull_request:
@@ -10,6 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +32,7 @@ jobs:
 
   windows-smoke:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,3 +43,63 @@ jobs:
           python-version: "3.12"
       - run: uv sync --locked --all-extras
       - run: uv run pytest -x
+
+  # Mandatory: known-vulnerability audit of the *locked* dependency set (also run weekly by
+  # audit.yml). Hash-pinned export, so pip-audit resolves nothing on its own.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --all-extras
+      - run: uv export --locked --all-extras --no-emit-project -o "$RUNNER_TEMP/requirements-audit.txt"
+      - run: uv run pip-audit -r "$RUNNER_TEMP/requirements-audit.txt" --disable-pip --require-hashes
+
+  # Mandatory: secret scan over the full history with a pinned, checksum-verified binary.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks (pinned release, sha256 verified)
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL -o "$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+      - run: '"$RUNNER_TEMP/gitleaks" detect --source . --no-banner --redact'
+
+  # Mandatory: build the wheel and prove it works in a clean environment.
+  build-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Dummy values only: the example config reads these names, nothing is contacted.
+      CHATBOT_API_KEY: dummy-ci-value-123
+      SYSTEM_PROMPT_FRAGMENT: dummy-ci-fragment-123
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+      - run: uv build
+      - name: Clean-venv smoke test of the wheel
+        run: |
+          wheel=$(ls dist/*.whl)
+          uv run --isolated --no-project --with "$wheel" injectkit --help
+          uv run --isolated --no-project --with "$wheel" injectkit version
+          uv run --isolated --no-project --with "$wheel" injectkit validate examples/target.example.yaml
+          uv run --isolated --no-project --with "$wheel" injectkit run examples/target.example.yaml --suite basic --dry-run
