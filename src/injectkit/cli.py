@@ -249,7 +249,12 @@ def _emit(
     url = resolved.config.request.url
     document = None
     if output_format is OutputFormat.SARIF:
-        document = to_sarif(result, resolved.redactor, config_uri=config_uri(config_path))
+        document = to_sarif(
+            result,
+            resolved.redactor,
+            config_uri=config_uri(config_path),
+            include_evidence=include_responses,
+        )
     elif output_format is OutputFormat.JSON or output is not None:
         document = to_json(
             result, resolved.redactor, target_url=url, include_responses=include_responses
@@ -294,7 +299,10 @@ def run(
         bool, typer.Option("--dry-run", help="Print the plan and limits; send nothing.")
     ] = False,
     include_responses: Annotated[
-        bool, typer.Option("--include-responses", help="Add redacted, truncated replies.")
+        bool,
+        typer.Option(
+            "--include-responses", help="Add redacted, truncated replies (and SARIF evidence)."
+        ),
     ] = False,
 ) -> None:
     """Run a payload suite against the target and report findings.

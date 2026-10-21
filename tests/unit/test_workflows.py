@@ -166,3 +166,23 @@ def test_releasing_checklist_names_the_user_side_steps_and_the_dod() -> None:
     text = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
     for needle in ("pypi", "trusted publisher", "DefinitionOfDone", "yank", "Maintainer"):
         assert needle in text, needle
+
+
+@pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.name)
+def test_every_setup_uv_step_pins_the_uv_version(path: Path) -> None:
+    steps = [
+        step
+        for job in load(path)["jobs"].values()
+        for step in job["steps"]
+        if "astral-sh/setup-uv@" in str(step.get("uses"))
+    ]
+    assert steps
+    for step in steps:
+        assert re.fullmatch(r"\d+\.\d+\.\d+", str(step["with"].get("version"))), path.name
+
+
+def test_gitleaks_allowlist_is_anchored_and_requires_path_and_value() -> None:
+    text = (ROOT / ".gitleaks.toml").read_text(encoding="utf-8")
+    assert 'condition = "AND"' in text
+    assert "regexes = ['''^tok-12345-abcdef$''']" in text
+    assert text.count("[[allowlists]]") == 1

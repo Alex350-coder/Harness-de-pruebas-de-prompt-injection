@@ -10,4 +10,4 @@ useDefault = true
 description = "Dummy API key used by CLI/config tests"
 condition = "AND"
 paths = ['''^tests/.*\.py$''']
-regexes = ['''tok-12345-abcdef''']
+regexes = ['''^tok-12345-abcdef$''']

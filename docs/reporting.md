@@ -60,8 +60,11 @@ has not been verified, because the project has no remote repository yet.
   `injectkit/<category>`. `properties.security-severity` is the highest severity found in that
   category, mapped as info 1.0, low 3.0, medium 5.0, high 7.5, critical 9.5. `help` holds the
   remediation text of that category's findings.
-* **Message.** The outcome, the detector, the matched indicator, the payload id, the first line
-  of the redacted evidence, and the detector's limitation sentence.
+* **Message.** The outcome, the detector, the matched indicator, the payload id and the
+  detector's limitation sentence. The first line of the redacted evidence is added **only with
+  `--include-responses`**: alerts in Code Scanning are readable by everyone who can read the
+  repository, and the evidence is a slice of the target's reply, which can hold personal data or
+  a secret that was never registered with the redactor.
 * **Location.** Every result points at the config file, at line 1, column 1. The
   `artifactLocation.uri` is a relative POSIX path from the current directory, percent-encoded.
   Code Scanning resolves it from the repository root, so run InjectKit from there. An absolute

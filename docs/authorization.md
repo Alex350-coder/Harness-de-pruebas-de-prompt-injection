@@ -111,15 +111,20 @@ channel that the maintainer chooses before publishing.
 ## Residual risks
 
 These are the risks accepted or documented in the project log (`Planning_files/Progress.md`),
-summarized here, plus one gap found while writing this page. Nothing below is fixed by this
-documentation change.
+summarized here, plus the findings of the Phase 5 security review (the review found no
+critical or high issue; the items below are the medium and low ones that were accepted instead
+of fixed, each with its reason).
 
-**Gap found while writing this page (not yet fixed):**
+**Request and memory bounds (accepted, medium):**
 
-* `limits.max_requests` counts planned tests, not HTTP attempts. Retries and redirect hops are
-  outside the cap (see [Rate and request caps](#rate-and-request-caps)). Rule 4 of the project
-  rules expects total requests to be capped; this needs a code change and a test, which are
-  outside this task.
+* `limits.max_requests` counts planned tests, not HTTP attempts. Retries (at most 5 per test)
+  and redirect hops (at most `max_redirects` per attempt) multiply the real number of requests
+  (see [Rate and request caps](#rate-and-request-caps)). Everything stays finite and every
+  attempt passes the shared rate limiter, but the plan check does not include them. Changing
+  the meaning of the cap is a behavior change left for a later release.
+* Raw replies are kept in memory until the detectors run, so the peak is about
+  `max_requests` times `max_bytes` (500 x 1 MiB with the defaults, up to 5000 x 5 MiB at the
+  configured maximums). Lower `max_bytes` and `max_requests` for large suites.
 
 **Network and HTTP:**
 
@@ -129,14 +134,21 @@ documentation change.
 * A cancelled DNS lookup keeps an executor thread until the operating-system resolver returns
   (bounded by the OS timeout).
 * With `follow_redirects: true`, a cross-origin 307 or 308 hop forwards the JSON body and every
-  header that does not look like a credential. Only credential-named headers are stripped.
-  Redirects are off by default.
+  header that does not look like a credential. Only credential-named headers are stripped, so a
+  secret sent in a header with an unusual name (for example `X-Tenant: ${SECRET}`) would be
+  forwarded. Redirects are off by default.
+* The redactor masks the exact, URL-encoded, JSON-escaped and base64 forms of a registered
+  secret. Other encodings (hex, HTML entities, case changes) are not masked, and only values
+  that come from `${ENV}` references or `secret_fragments` are registered.
 
 **Parsing and detection:**
 
 * Python's `re` has no timeout. A user-supplied regex with a few unbounded quantifiers can be
-  slow on 64 KiB of reply text. The lint that rejects nested quantifiers is a heuristic. Built-in
-  payloads contain no regex checks.
+  slow on 64 KiB of reply text; the review measured cubic time for a pattern such as
+  `.*.*.*zzz` (about 6 seconds for 400 characters of reply, so far longer for 64 KiB). The lint
+  that rejects nested quantifiers is a heuristic and allows up to three unbounded quantifiers.
+  Built-in payloads contain no regex checks, and a regex only comes from a suite file that you
+  chose to run, not from the target. Review third-party suites before running them.
 * Corpus-documented false negatives (paraphrase, encoding, reversal) and false positives (a
   refusal that quotes the forbidden phrase, broad patterns) are intentional and asserted by tests.
 * The normalization is repeated up to four passes. Idempotence was checked exhaustively for short
@@ -155,6 +167,7 @@ documentation change.
   rebinding, reach `/chat`. Only the fake secret is exposed.
 * `localhost` is trusted without resolution in the demo's bind guard and in the Ollama URL check.
 * The scripted backend is a deliberately vulnerable fixture.
+* The Ollama backend reads the whole reply before applying its size cap.
 
 **Files and signals:**
 
@@ -167,4 +180,7 @@ documentation change.
 
 * No remote CI run and no upload to GitHub Code Scanning have been done, because there is no
   remote repository yet.
-* The full security review of `src/` (task P5-T06, including `pip-audit`) is still open.
+* The Phase 5 security review (task P5-T06) was done by AI agents and the main session, not by
+  an independent human. It is a reason to review, not a replacement for one.
+* `validate` and `check-target` have no last-resort exception boundary like `run`. An unexpected
+  internal error shows Python's traceback (without local variables) instead of a one-line message.

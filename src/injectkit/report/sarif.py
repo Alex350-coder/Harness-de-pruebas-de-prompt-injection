@@ -60,12 +60,16 @@ def _first_sentence(text: str) -> str:
     return text.strip().splitlines()[0].strip() if text.strip() else "-"
 
 
-def _message(finding: Finding) -> str:
+def _message(finding: Finding, *, include_evidence: bool) -> str:
     # GitHub shows only the first sentence when space is short, so it carries the verdict.
     head = (
         f"{finding.outcome.value.upper()} {finding.detector} indicator "
         f"({finding.matched_indicator}) for payload {finding.payload_id}."
     )
+    if not include_evidence:
+        # Code Scanning alerts are readable by everyone with repository access, and the
+        # evidence is a slice of the target's reply, so it is opt-in (--include-responses).
+        return f"{head} Limitation: {finding.limitations}"
     evidence = _first_sentence(finding.evidence)
     return f"{head} Evidence: {evidence} Limitation: {finding.limitations}"
 
@@ -103,7 +107,7 @@ def _rules(findings: list[Finding]) -> list[dict[str, Any]]:
     return rules
 
 
-def _results(findings: list[Finding], uri: str) -> list[dict[str, Any]]:
+def _results(findings: list[Finding], uri: str, *, include_evidence: bool) -> list[dict[str, Any]]:
     seen: dict[str, int] = {}
     results: list[dict[str, Any]] = []
     for finding in findings:
@@ -113,7 +117,7 @@ def _results(findings: list[Finding], uri: str) -> list[dict[str, Any]]:
             {
                 "ruleId": f"{RULE_PREFIX}{finding.category}",
                 "level": _LEVELS[finding.outcome],
-                "message": {"text": _message(finding)},
+                "message": {"text": _message(finding, include_evidence=include_evidence)},
                 "locations": [
                     {
                         "physicalLocation": {
@@ -169,7 +173,9 @@ def _invocation(run: RunResult) -> dict[str, Any]:
     return invocation
 
 
-def build_sarif(run: RunResult, *, config_uri: str) -> dict[str, Any]:
+def build_sarif(
+    run: RunResult, *, config_uri: str, include_evidence: bool = False
+) -> dict[str, Any]:
     findings = [f for result in run.results for f in result.findings]
     return {
         "$schema": SARIF_SCHEMA_URI,
@@ -184,7 +190,7 @@ def build_sarif(run: RunResult, *, config_uri: str) -> dict[str, Any]:
                     }
                 },
                 "invocations": [_invocation(run)],
-                "results": _results(findings, config_uri),
+                "results": _results(findings, config_uri, include_evidence=include_evidence),
                 "properties": {
                     "run_id": run.run_id,
                     "suite": run.suite,
@@ -195,8 +201,15 @@ def build_sarif(run: RunResult, *, config_uri: str) -> dict[str, Any]:
     }
 
 
-def to_sarif(run: RunResult, redactor: Redactor, *, config_uri: str) -> str:
-    """Serialize ``run`` to deterministic SARIF 2.1.0 with every string redacted."""
-    document: Any = redactor.mask_json(build_sarif(run, config_uri=config_uri))
+def to_sarif(
+    run: RunResult, redactor: Redactor, *, config_uri: str, include_evidence: bool = False
+) -> str:
+    """Serialize ``run`` to deterministic SARIF 2.1.0 with every string redacted.
+
+    Evidence (a redacted excerpt of the target's reply) is left out unless asked for.
+    """
+    document: Any = redactor.mask_json(
+        build_sarif(run, config_uri=config_uri, include_evidence=include_evidence)
+    )
     text = json.dumps(document, indent=2, sort_keys=True, ensure_ascii=True)
     return redactor.mask(text) + "\n"

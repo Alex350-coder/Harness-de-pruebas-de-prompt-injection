@@ -94,13 +94,28 @@ def test_fingerprints_are_deterministic_and_do_not_depend_on_evidence(
     assert all(h.endswith(":1") for h in hashes)
 
 
-def test_secrets_in_evidence_are_masked_everywhere(make_run: RunFactory) -> None:
+def test_secrets_in_opted_in_evidence_are_masked_everywhere(make_run: RunFactory) -> None:
     run = make_run(evidence=f"leak {FRAGMENT} here")
     redactor = Redactor()
     redactor.add(FRAGMENT, label="frag")
-    text = to_sarif(run, redactor, config_uri="target.yaml")
+    text = to_sarif(run, redactor, config_uri="target.yaml", include_evidence=True)
     assert FRAGMENT not in text
     assert "[REDACTED" in text
+    assert "leak" in text
+
+
+def test_evidence_is_left_out_by_default(make_run: RunFactory) -> None:
+    run = make_run(evidence="private reply text that must not reach Code Scanning")
+    text = to_sarif(run, Redactor(), config_uri="target.yaml")
+    assert "private reply text" not in text
+    assert "Evidence:" not in text
+    assert "Limitation:" in text
+
+
+def test_evidence_appears_when_opted_in(make_run: RunFactory) -> None:
+    run = make_run(evidence="reply INJK-0123456789abcdef end")
+    text = to_sarif(run, Redactor(), config_uri="target.yaml", include_evidence=True)
+    assert "Evidence: reply INJK-0123456789abcdef end" in text
 
 
 def test_message_states_the_limitation(make_run: RunFactory) -> None:

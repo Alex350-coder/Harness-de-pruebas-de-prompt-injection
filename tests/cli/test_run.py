@@ -388,3 +388,14 @@ def test_sarif_clean_run_has_no_results_and_exits_zero(tmp_path: Path) -> None:
         result = invoke_run(tmp_path, "--format", "sarif", "--fail-on", "never")
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout)["runs"][0]["results"] == []
+
+
+def test_sarif_has_no_response_text_unless_include_responses_is_given(tmp_path: Path) -> None:
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        plain = invoke_run(tmp_path, "--format", "sarif")
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        full = invoke_run(tmp_path, "--format", "sarif", "--include-responses")
+    assert "Evidence:" not in plain.stdout
+    assert "Evidence:" in full.stdout
