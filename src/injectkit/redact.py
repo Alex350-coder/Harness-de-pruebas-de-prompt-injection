@@ -11,7 +11,13 @@ from urllib.parse import quote, quote_plus
 _ANSI_OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 _ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # C0/C1 controls plus bidi overrides, zero-width and BOM characters (terminal spoofing).
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+# Also invisible "smuggling" characters: line/paragraph separators, word joiners and invisible
+# operators, Arabic letter mark, Mongolian vowel separator, interlinear annotation, and the
+# Unicode tag block.
+_CONTROL = re.compile(
+    r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2069"
+    r"\ufeff\ufff9-\ufffb\U000e0000-\U000e007f]"
+)
 
 
 def strip_control(text: str) -> str:

@@ -152,7 +152,7 @@ class ResponseConfig(_Model):
 
 class FragmentSpec(_Model):
     id: Annotated[str, Field(min_length=1, max_length=64)]
-    value: str | None = None
+    value: str | None = Field(default=None, repr=False)
     value_env: str | None = None
 
     @model_validator(mode="after")
