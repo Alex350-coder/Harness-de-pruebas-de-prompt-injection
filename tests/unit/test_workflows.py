@@ -64,12 +64,21 @@ def test_default_token_is_read_only(path: Path) -> None:
     assert document.get("permissions") == {"contents": "read"}
 
 
-def test_ci_has_every_mandatory_job_and_no_job_widens_permissions() -> None:
+def test_ci_has_every_mandatory_job_and_only_selftest_writes_security_events() -> None:
     jobs = load(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]
     assert set(jobs) >= MANDATORY_CI_JOBS
     for name, job in jobs.items():
         permissions = job.get("permissions", {})
-        assert not set(permissions) & WRITE_PERMISSIONS, name
+        if name == "injectkit-selftest":
+            assert permissions == {"contents": "read", "security-events": "write"}
+        else:
+            assert not set(permissions) & WRITE_PERMISSIONS, name
+
+
+def test_selftest_is_skipped_for_fork_pull_requests() -> None:
+    job = load(ROOT / ".github" / "workflows" / "ci.yml")["jobs"]["injectkit-selftest"]
+    condition = job["if"]
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in condition
 
 
 def test_secret_scan_uses_full_history_and_a_checksum_verified_binary() -> None:
@@ -96,3 +105,26 @@ def test_dependabot_covers_only_actions_and_uv() -> None:
 def test_checker_rejects_an_unpinned_reference() -> None:
     assert not PINNED.match("actions/checkout@v4")
     assert not PINNED.match("actions/checkout@main")
+
+
+EXAMPLE = ROOT / "examples" / "github-workflow.yml"
+
+
+def test_example_workflow_is_pinned_least_privilege_and_documents_authorization() -> None:
+    document = load(EXAMPLE)
+    assert "pull_request_target" not in triggers(document)
+    assert document["permissions"] == {"contents": "read"}
+    job = document["jobs"]["injectkit"]
+    assert job["permissions"] == {"contents": "read", "security-events": "write"}
+    assert "head.repo.full_name == github.repository" in job["if"]
+    for reference in uses_lines(EXAMPLE):
+        assert PINNED.match(reference), reference
+    text = EXAMPLE.read_text(encoding="utf-8")
+    assert "AUTHORIZATION" in text
+    assert "security-events: write" in text
+    assert "--fail-on never" in text
+
+
+def test_example_workflow_never_inlines_a_credential() -> None:
+    text = EXAMPLE.read_text(encoding="utf-8")
+    assert not re.search(r"(?i)(api[_-]?key|token|password)\s*:\s*[\"']?[A-Za-z0-9]{16,}", text)

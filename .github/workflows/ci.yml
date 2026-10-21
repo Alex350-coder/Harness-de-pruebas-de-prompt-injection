@@ -103,3 +103,50 @@ jobs:
           uv run --isolated --no-project --with "$wheel" injectkit version
           uv run --isolated --no-project --with "$wheel" injectkit validate examples/target.example.yaml
           uv run --isolated --no-project --with "$wheel" injectkit run examples/target.example.yaml --suite basic --dry-run
+
+  # Advisory: dogfood. Runs the scripted demo on loopback, produces SARIF, validates it and
+  # uploads it to Code Scanning. `security-events: write` exists ONLY on this job, and the job
+  # is skipped for fork PRs (their token cannot upload).
+  injectkit-selftest:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked --all-extras
+      - name: Run InjectKit against the local scripted demo (loopback only)
+        run: |
+          uv run injectkit-demo &
+          demo_pid=$!
+          trap 'kill "$demo_pid"' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          uv run injectkit run examples/demo-target.yaml --suite basic \
+            --format sarif --output injectkit.sarif --fail-on never > /dev/null
+      - name: Validate the SARIF against the vendored 2.1.0 schema
+        run: |
+          uv run python -c "
+          import json, jsonschema
+          schema = json.load(open('tests/data/sarif-schema-2.1.0.json', encoding='utf-8'))
+          document = json.load(open('injectkit.sarif', encoding='utf-8'))
+          jsonschema.Draft4Validator(schema).validate(document)
+          print('SARIF valid;', len(document['runs'][0]['results']), 'results')
+          "
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        # Advisory: uploading needs Code Scanning to be available for the repository.
+        continue-on-error: true
+        with:
+          sarif_file: injectkit.sarif
+          category: injectkit-selftest
