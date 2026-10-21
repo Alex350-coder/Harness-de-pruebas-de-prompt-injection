@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from pathlib import Path, PurePosixPath
 from typing import Any
+from urllib.parse import quote
 
 from injectkit.models import Finding, Outcome, RunResult, Severity
 from injectkit.redact import Redactor
@@ -20,7 +20,7 @@ SARIF_VERSION = "2.1.0"
 SARIF_SCHEMA_URI = "https://json.schemastore.org/sarif-2.1.0.json"
 RULE_PREFIX = "injectkit/"
 _FALLBACK_URI = "target.yaml"
-_UNSAFE_URI_CHARS = re.compile(r"[^A-Za-z0-9._/-]")
+ERROR_RATE_LIMIT = 0.5  # same threshold as the CLI exit code 3
 
 # GitHub maps security-severity (a string in 0.1-10.0) to low/medium/high/critical.
 _SECURITY_SEVERITY: dict[Severity, str] = {
@@ -36,19 +36,19 @@ _RULE_HELP_LIMIT = 1024
 
 
 def config_uri(path: Path, *, base: Path | None = None) -> str:
-    """A relative, POSIX, URI-safe path for the config file (never absolute, never ``..``).
+    """A relative, percent-encoded POSIX path for the config file (never absolute, no ``..``).
 
-    A path outside ``base`` (default: the current directory) falls back to its file name so
-    an absolute local path is never written into a report.
+    GitHub resolves it from the repository root, so run InjectKit from there. A path outside
+    ``base`` (default: the current directory) is reported by file name only, so an absolute
+    local path is never written into a report.
     """
     root = (base or Path.cwd()).resolve()
     try:
         relative = path.resolve().relative_to(root).as_posix()
     except ValueError:
         relative = PurePosixPath(path.name.replace("\\", "/")).name
-    cleaned = _UNSAFE_URI_CHARS.sub("_", relative).lstrip("/.")
-    parts = [part for part in cleaned.split("/") if part not in {"", ".", ".."}]
-    return "/".join(parts) or _FALLBACK_URI
+    parts = [part for part in relative.split("/") if part not in {"", ".", ".."}]
+    return quote("/".join(parts), safe="/") or _FALLBACK_URI
 
 
 def _fingerprint(finding: Finding, occurrence: int) -> str:
@@ -144,6 +144,31 @@ def _results(findings: list[Finding], uri: str) -> list[dict[str, Any]]:
     return results
 
 
+def _invocation(run: RunResult) -> dict[str, Any]:
+    errors = [r for r in run.results if r.error is not None]
+    too_many_errors = bool(run.results) and len(errors) / len(run.results) > ERROR_RATE_LIMIT
+    invocation: dict[str, Any] = {
+        # Mirrors the CLI: interrupted (130) or more than half errored (3) is not a success,
+        # so a consumer can avoid treating an empty result list as "all alerts fixed".
+        "executionSuccessful": not (run.interrupted or too_many_errors),
+        "startTimeUtc": run.started_at.isoformat().replace("+00:00", "Z"),
+        "endTimeUtc": run.finished_at.isoformat().replace("+00:00", "Z"),
+    }
+    if errors:
+        invocation["toolExecutionNotifications"] = [
+            {
+                "level": "error",
+                "message": {
+                    "text": f"payload {r.payload_id}: {r.error.kind.value}: {r.error.message}"
+                    if r.error is not None
+                    else f"payload {r.payload_id}: error"
+                },
+            }
+            for r in errors
+        ]
+    return invocation
+
+
 def build_sarif(run: RunResult, *, config_uri: str) -> dict[str, Any]:
     findings = [f for result in run.results for f in result.findings]
     return {
@@ -154,17 +179,11 @@ def build_sarif(run: RunResult, *, config_uri: str) -> dict[str, Any]:
                 "tool": {
                     "driver": {
                         "name": "injectkit",
-                        "semanticVersion": run.tool_version,
+                        "version": run.tool_version,
                         "rules": _rules(findings),
                     }
                 },
-                "invocations": [
-                    {
-                        "executionSuccessful": not run.interrupted,
-                        "startTimeUtc": run.started_at.isoformat().replace("+00:00", "Z"),
-                        "endTimeUtc": run.finished_at.isoformat().replace("+00:00", "Z"),
-                    }
-                ],
+                "invocations": [_invocation(run)],
                 "results": _results(findings, config_uri),
                 "properties": {
                     "run_id": run.run_id,

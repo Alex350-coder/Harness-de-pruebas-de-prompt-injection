@@ -134,3 +134,92 @@ def test_config_uri_is_relative_to_the_base(tmp_path: Path) -> None:
     config.parent.mkdir()
     config.write_text("x", encoding="utf-8")
     assert config_uri(config, base=tmp_path) == "sub/t.yaml"
+
+
+@pytest.mark.parametrize(
+    ("relative", "expected"),
+    [
+        (".github/injectkit.yaml", ".github/injectkit.yaml"),
+        ("my config/t.yaml", "my%20config/t.yaml"),
+        ("é.yaml", "%C3%A9.yaml"),
+        ("a/b/t.yaml", "a/b/t.yaml"),
+    ],
+)
+def test_config_uri_keeps_dot_directories_and_percent_encodes(
+    relative: str, expected: str, tmp_path: Path
+) -> None:
+    assert config_uri(tmp_path / relative, base=tmp_path) == expected
+
+
+def test_config_outside_the_base_is_reported_by_file_name_only(tmp_path: Path) -> None:
+    base = tmp_path / "repo"
+    base.mkdir()
+    assert config_uri(tmp_path / "elsewhere" / "t.yaml", base=base) == "t.yaml"
+
+
+def test_interrupted_run_is_marked_as_not_successful(make_run: RunFactory) -> None:
+    run = make_run().model_copy(update={"interrupted": True})
+    invocation = sarif(run)["runs"][0]["invocations"][0]
+    assert invocation["executionSuccessful"] is False
+
+
+def test_majority_error_run_is_not_successful_and_lists_notifications(
+    make_run: RunFactory,
+) -> None:
+    run = make_run(outcomes=(Outcome.ERROR, Outcome.ERROR, Outcome.NO_INDICATOR))
+    invocation = sarif(run)["runs"][0]["invocations"][0]
+    assert invocation["executionSuccessful"] is False
+    notes = invocation["toolExecutionNotifications"]
+    assert len(notes) == 2
+    assert all(n["level"] == "error" and n["message"]["text"] for n in notes)
+
+
+def test_exactly_half_errors_still_counts_as_successful(make_run: RunFactory) -> None:
+    run = make_run(outcomes=(Outcome.ERROR, Outcome.NO_INDICATOR))
+    assert sarif(run)["runs"][0]["invocations"][0]["executionSuccessful"] is True
+
+
+def test_clean_run_has_no_notifications(make_run: RunFactory) -> None:
+    invocation = sarif(make_run(outcomes=(Outcome.NO_INDICATOR,)))["runs"][0]["invocations"][0]
+    assert "toolExecutionNotifications" not in invocation
+
+
+def test_error_messages_in_notifications_are_masked(make_run: RunFactory) -> None:
+    run = make_run(outcomes=(Outcome.ERROR,), error_message=f"upstream said {FRAGMENT}")
+    redactor = Redactor()
+    redactor.add(FRAGMENT, label="frag")
+    assert FRAGMENT not in to_sarif(run, redactor, config_uri="t.yaml")
+
+
+def test_distinct_indicators_for_the_same_payload_get_distinct_fingerprints(
+    make_run: RunFactory,
+) -> None:
+    run = make_run(outcomes=(Outcome.CONFIRMED,))
+    finding = run.results[0].findings[0]
+    other = finding.model_copy(update={"matched_indicator": "other-indicator"})
+    result = run.results[0].model_copy(update={"findings": (finding, other)})
+    results = sarif(run.model_copy(update={"results": (result,)}))["runs"][0]["results"]
+    hashes = [r["partialFingerprints"]["primaryLocationLineHash"] for r in results]
+    assert len(set(hashes)) == 2
+
+
+def test_identical_findings_get_increasing_occurrence_numbers(make_run: RunFactory) -> None:
+    run = make_run(outcomes=(Outcome.CONFIRMED,))
+    finding = run.results[0].findings[0]
+    result = run.results[0].model_copy(update={"findings": (finding, finding)})
+    results = sarif(run.model_copy(update={"results": (result,)}))["runs"][0]["results"]
+    hashes = [r["partialFingerprints"]["primaryLocationLineHash"] for r in results]
+    assert [h.rsplit(":", 1)[1] for h in hashes] == ["1", "2"]
+    assert hashes[0].rsplit(":", 1)[0] == hashes[1].rsplit(":", 1)[0]
+
+
+def test_driver_uses_version_not_semantic_version(make_run: RunFactory) -> None:
+    driver = sarif(make_run())["runs"][0]["tool"]["driver"]
+    assert driver["version"] == "0.1.0.dev0"
+    assert "semanticVersion" not in driver
+
+
+def test_control_characters_and_long_evidence_stay_valid_sarif(make_run: RunFactory) -> None:
+    run = make_run(evidence="x\x00\x1b[31m\u202e" + "y" * 250)
+    document = sarif(run)
+    jsonschema.Draft4Validator(load_schema()).validate(document)
