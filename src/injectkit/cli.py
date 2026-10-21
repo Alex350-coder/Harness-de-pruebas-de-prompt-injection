@@ -24,6 +24,7 @@ from injectkit.redact import Redactor, strip_control
 from injectkit.report import check_output_path, sanitize_url, write_atomic
 from injectkit.report.console import render_console
 from injectkit.report.json_report import to_json
+from injectkit.report.sarif import config_uri, to_sarif
 from injectkit.runner import RunSettings, check_plan, run_suite
 from injectkit.targets.http import HttpTarget
 
@@ -43,6 +44,7 @@ app = typer.Typer(
 class OutputFormat(StrEnum):
     CONSOLE = "console"
     JSON = "json"
+    SARIF = "sarif"
 
 
 class FailOn(StrEnum):
@@ -235,19 +237,24 @@ def _emit(
     output_format: OutputFormat,
     output: Path | None,
     include_responses: bool,
+    config_path: Path,
 ) -> None:
-    """Print the chosen report first, then write the JSON file atomically when asked.
+    """Print the chosen report first, then write the report file atomically when asked.
+
+    The file holds SARIF when ``--format sarif`` is chosen and JSON otherwise.
 
     Printing comes first so a failing file write (full disk, locked file) never loses the
     results of a run whose requests were already sent.
     """
     url = resolved.config.request.url
     document = None
-    if output_format is OutputFormat.JSON or output is not None:
+    if output_format is OutputFormat.SARIF:
+        document = to_sarif(result, resolved.redactor, config_uri=config_uri(config_path))
+    elif output_format is OutputFormat.JSON or output is not None:
         document = to_json(
             result, resolved.redactor, target_url=url, include_responses=include_responses
         )
-    if output_format is OutputFormat.JSON and document is not None:
+    if output_format is not OutputFormat.CONSOLE and document is not None:
         typer.echo(document, nl=False)
     else:
         render_console(result, Console(), redactor=resolved.redactor, target_url=url)
@@ -269,10 +276,12 @@ def run(
         str, typer.Option("--suite", help="Built-in suite name (basic, quick) or a YAML path.")
     ] = "basic",
     output_format: Annotated[
-        OutputFormat, typer.Option("--format", help="Report printed to stdout.")
+        OutputFormat,
+        typer.Option("--format", help="Report printed to stdout (console, json, sarif)."),
     ] = OutputFormat.CONSOLE,
     output: Annotated[
-        Path | None, typer.Option("--output", help="Also write the JSON report to this file.")
+        Path | None,
+        typer.Option("--output", help="Also write the report (SARIF for sarif, else JSON) here."),
     ] = None,
     fail_on: Annotated[
         FailOn, typer.Option("--fail-on", help="Lowest outcome that makes the exit code 1.")
@@ -318,7 +327,7 @@ def run(
         return
     try:
         result = _execute(resolved, suite_obj, settings, include_responses)
-        _emit(result, resolved, output_format, output, include_responses)
+        _emit(result, resolved, output_format, output, include_responses, config_path)
     except ReportError as exc:
         raise _fail(exc, EXIT_EXECUTION) from None
     except InjectKitError as exc:

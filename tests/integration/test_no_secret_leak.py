@@ -113,6 +113,14 @@ def test_console_report_streams_carry_no_secret(tmp_path: Path) -> None:
     assert_clean(result.stdout, result.stderr, result.output)
 
 
+def test_sarif_stdout_and_file_carry_no_secret(tmp_path: Path) -> None:
+    out = tmp_path / "report.sarif"
+    result = run_cli(tmp_path, "--format", "sarif", "--output", str(out))
+    assert result.exit_code == 1, result.output
+    assert_clean(result.stdout, result.stderr, out.read_text(encoding="utf-8"))
+    assert "secret_fragment" in result.stdout
+
+
 def test_json_stdout_and_file_carry_no_secret(tmp_path: Path) -> None:
     out = tmp_path / "report.json"
     result = run_cli(tmp_path, "--format", "json", "--output", str(out), "--include-responses")
