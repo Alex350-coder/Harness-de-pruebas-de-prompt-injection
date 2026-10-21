@@ -128,3 +128,41 @@ def test_example_workflow_is_pinned_least_privilege_and_documents_authorization(
 def test_example_workflow_never_inlines_a_credential() -> None:
     text = EXAMPLE.read_text(encoding="utf-8")
     assert not re.search(r"(?i)(api[_-]?key|token|password)\s*:\s*[\"']?[A-Za-z0-9]{16,}", text)
+
+
+RELEASE = ROOT / ".github" / "workflows" / "release.yml"
+
+
+def test_release_runs_only_when_a_release_is_published() -> None:
+    document = load(RELEASE)
+    assert triggers(document) == {"release": {"types": ["published"]}}
+
+
+def test_release_publish_job_uses_oidc_and_the_protected_environment_only_there() -> None:
+    jobs = load(RELEASE)["jobs"]
+    publish = jobs["publish"]
+    assert publish["environment"]["name"] == "pypi"
+    assert publish["permissions"]["id-token"] == "write"
+    assert "id-token" not in jobs["build"].get("permissions", {})
+    assert any("pypa/gh-action-pypi-publish" in str(step.get("uses")) for step in publish["steps"])
+    assert publish["needs"] == "build"
+
+
+def test_release_never_interpolates_the_tag_into_a_shell_command() -> None:
+    for job in load(RELEASE)["jobs"].values():
+        for step in job["steps"]:
+            assert "github.event.release" not in str(step.get("run", ""))
+
+
+def test_release_has_no_token_based_publishing_and_builds_from_the_tag() -> None:
+    text = RELEASE.read_text(encoding="utf-8")
+    assert "password:" not in text
+    assert "PYPI_API_TOKEN" not in text
+    assert "ref: ${{ github.event.release.tag_name }}" in text
+    assert "does not match package version" in text
+
+
+def test_releasing_checklist_names_the_user_side_steps_and_the_dod() -> None:
+    text = (ROOT / "RELEASING.md").read_text(encoding="utf-8")
+    for needle in ("pypi", "trusted publisher", "DefinitionOfDone", "yank", "Maintainer"):
+        assert needle in text, needle
