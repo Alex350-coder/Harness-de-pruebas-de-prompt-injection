@@ -11,7 +11,7 @@ to the console, as JSON, or as SARIF 2.1.0.
 
 ## Status
 
-* Version `0.1.0.dev0`, alpha (`Development Status :: 3 - Alpha`).
+* Version `0.1.0`, alpha (`Development Status :: 3 - Alpha`).
 * **InjectKit is not published on PyPI.** Install it from a source checkout or from a wheel that
   you build yourself (below).
 * Python 3.12 or newer. License: Apache-2.0 (see [LICENSE](LICENSE)).
@@ -53,7 +53,7 @@ Windows (tested with Python 3.12, Git Bash):
 
 ```bash
 py -3.12 -m venv ~/.venvs/injectkit-wheel
-~/.venvs/injectkit-wheel/Scripts/python -m pip install dist/injectkit-0.1.0.dev0-py3-none-any.whl
+~/.venvs/injectkit-wheel/Scripts/python -m pip install dist/injectkit-0.1.0-py3-none-any.whl
 ~/.venvs/injectkit-wheel/Scripts/injectkit version
 ```
 
@@ -63,7 +63,7 @@ work. This has not been tested on those systems.
 ### One-off run from the wheel (uv, no installation)
 
 ```bash
-uv run --isolated --no-project --with dist/injectkit-0.1.0.dev0-py3-none-any.whl injectkit version
+uv run --isolated --no-project --with dist/injectkit-0.1.0-py3-none-any.whl injectkit version
 ```
 
 The command is `injectkit version`. There is no `--version` flag.
@@ -175,7 +175,7 @@ errored (stderr then warns with the error count). Exactly half errored is still 
 
 ## Limitations
 
-* Alpha software (`0.1.0.dev0`). The CLI and the config schema may still change.
+* Alpha software (`0.1.0`). The CLI and the config schema may still change.
 * Not published on PyPI. The remote CI workflow and SARIF upload to GitHub Code Scanning are not
   verified yet, because the project has no remote repository.
 * Tests only HTTP endpoints that accept a JSON `POST`, `PUT` or `PATCH` and return JSON. Streaming

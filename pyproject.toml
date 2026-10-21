@@ -1,6 +1,6 @@
 [project]
 name = "injectkit"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "CLI for authorized prompt-injection testing of LLM-powered HTTP applications."
 readme = "README.md"
 requires-python = ">=3.12"
