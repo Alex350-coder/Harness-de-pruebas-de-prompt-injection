@@ -1,0 +1,2 @@
+# Byte-exact vendored file: its sha256 is asserted by tests/unit/test_sarif.py
+tests/data/sarif-schema-2.1.0.json -text

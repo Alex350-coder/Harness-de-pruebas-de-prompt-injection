@@ -1,0 +1,54 @@
+# Example: run InjectKit against YOUR OWN staging chatbot and send the findings to GitHub
+# Code Scanning. Copy to `.github/workflows/injectkit.yml` in your repository and adapt it.
+#
+# AUTHORIZATION: only point this at a system you own or have written permission to test.
+# `examples/target.example.yaml` shows the config; its `authorization` block is mandatory.
+# Findings are indicators of instruction-following, NOT proof of safety or of impact.
+#
+# PERMISSIONS: the workflow token is read-only except `security-events: write`, which is
+# needed ONLY to upload SARIF and is granted to that one job. Fork pull requests get no
+# token that can write, so the job is skipped for them. Do not add `pull_request_target`.
+#
+# SECRETS: the target config reads credentials from environment variables
+# (`Authorization: "Bearer ${CHATBOT_API_KEY}"`). Provide them as repository secrets in the
+# `env:` block below; never write a credential into the config file.
+#
+# INSTALL: InjectKit is not published on PyPI yet. Replace the `uv tool install` line with
+# the way you obtain it (for example a wheel built from the source repository).
+name: InjectKit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  injectkit:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      CHATBOT_API_KEY: ${{ secrets.CHATBOT_API_KEY }}
+      SYSTEM_PROMPT_FRAGMENT: ${{ secrets.SYSTEM_PROMPT_FRAGMENT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: "3.12"
+      - name: Install InjectKit (adapt this step, it is not on PyPI yet)
+        run: uv tool install injectkit
+      - name: Run the basic suite and write SARIF
+        # --fail-on never: findings are reported through Code Scanning, not by failing the job.
+        run: injectkit run target.yaml --suite basic --format sarif --output injectkit.sarif --fail-on never > /dev/null
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: injectkit.sarif
+          category: injectkit

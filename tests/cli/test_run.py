@@ -163,7 +163,7 @@ def test_cli_cannot_raise_the_config_cap(tmp_path: Path) -> None:
 
 
 def test_invalid_format_is_a_usage_error(tmp_path: Path) -> None:
-    assert invoke_run(tmp_path, "--format", "sarif").exit_code == 2
+    assert invoke_run(tmp_path, "--format", "xml").exit_code == 2
 
 
 def test_dry_run_sends_zero_requests_and_prints_the_plan(tmp_path: Path) -> None:
@@ -367,3 +367,35 @@ def test_yml_suites_are_treated_as_paths(tmp_path: Path) -> None:
     )
     assert result.exit_code == 2
     assert "unknown built-in suite" not in result.stderr
+
+
+def test_sarif_format_prints_valid_sarif_and_the_file_holds_sarif(tmp_path: Path) -> None:
+    out = tmp_path / "injectkit.sarif"
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        result = invoke_run(tmp_path, "--format", "sarif", "--output", str(out))
+    assert result.exit_code == 1, result.output
+    document = json.loads(result.stdout)
+    assert document["version"] == "2.1.0"
+    assert len(document["runs"][0]["results"]) == QUICK_SIZE
+    assert json.loads(out.read_text(encoding="utf-8")) == document
+    assert API_KEY not in result.output
+
+
+def test_sarif_clean_run_has_no_results_and_exits_zero(tmp_path: Path) -> None:
+    with respx.mock:
+        respx.post(URL).mock(side_effect=refusing)
+        result = invoke_run(tmp_path, "--format", "sarif", "--fail-on", "never")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["runs"][0]["results"] == []
+
+
+def test_sarif_has_no_response_text_unless_include_responses_is_given(tmp_path: Path) -> None:
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        plain = invoke_run(tmp_path, "--format", "sarif")
+    with respx.mock:
+        respx.post(URL).mock(side_effect=obedient)
+        full = invoke_run(tmp_path, "--format", "sarif", "--include-responses")
+    assert "Evidence:" not in plain.stdout
+    assert "Evidence:" in full.stdout

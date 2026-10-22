@@ -1,12 +1,24 @@
 [project]
 name = "injectkit"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "CLI for authorized prompt-injection testing of LLM-powered HTTP applications."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "TODO-USER" }]
+keywords = ["prompt-injection", "llm", "security", "testing", "sarif"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
 dependencies = [
     "typer>=0.12",
     "rich>=13",
@@ -35,6 +47,11 @@ dev = [
     "pip-audit>=2.7",
     "jsonschema>=4",
 ]
+
+[tool.uv.build-backend]
+# Local tooling state (ECC hooks write .claude/ next to data files) must never ship.
+source-exclude = ["**/.claude/**", "**/__pycache__/**"]
+wheel-exclude = ["**/.claude/**", "**/__pycache__/**"]
 
 [build-system]
 requires = ["uv_build>=0.11,<0.12"]

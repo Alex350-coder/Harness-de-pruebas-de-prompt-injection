@@ -1,5 +1,6 @@
 name: CI
 
+# No `pull_request_target` anywhere: fork PRs run with a read-only token and no secrets.
 on:
   push:
   pull_request:
@@ -10,6 +11,7 @@ permissions:
 jobs:
   quality:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -20,6 +22,7 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: "0.11.18"
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - run: uv sync --locked --all-extras
@@ -30,13 +33,125 @@ jobs:
 
   windows-smoke:
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
+          version: "0.11.18"
           enable-cache: true
           python-version: "3.12"
       - run: uv sync --locked --all-extras
       - run: uv run pytest -x
+
+  # Mandatory: known-vulnerability audit of the *locked* dependency set (also run weekly by
+  # audit.yml). Hash-pinned export, so pip-audit resolves nothing on its own.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.18"
+          enable-cache: true
+      - run: uv sync --locked --all-extras
+      - run: uv export --locked --all-extras --no-emit-project -o "$RUNNER_TEMP/requirements-audit.txt"
+      - run: uv run pip-audit -r "$RUNNER_TEMP/requirements-audit.txt" --disable-pip --require-hashes
+
+  # Mandatory: secret scan over the full history with a pinned, checksum-verified binary.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks (pinned release, sha256 verified)
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -sSfL -o "$archive" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+      - run: '"$RUNNER_TEMP/gitleaks" detect --source . --no-banner --redact'
+
+  # Mandatory: build the wheel and prove it works in a clean environment.
+  build-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Dummy values only: the example config reads these names, nothing is contacted.
+      CHATBOT_API_KEY: dummy-ci-value-123
+      SYSTEM_PROMPT_FRAGMENT: dummy-ci-fragment-123
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.18"
+          python-version: "3.12"
+      - run: uv build
+      - name: Clean-venv smoke test of the wheel
+        run: |
+          wheel=$(ls dist/*.whl)
+          uv run --isolated --no-project --with "$wheel" injectkit --help
+          uv run --isolated --no-project --with "$wheel" injectkit version
+          uv run --isolated --no-project --with "$wheel" injectkit validate examples/target.example.yaml
+          uv run --isolated --no-project --with "$wheel" injectkit run examples/target.example.yaml --suite basic --dry-run
+
+  # Advisory: dogfood. Runs the scripted demo on loopback, produces SARIF, validates it and
+  # uploads it to Code Scanning. `security-events: write` exists ONLY on this job, and the job
+  # is skipped for fork PRs (their token cannot upload).
+  injectkit-selftest:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.11.18"
+          enable-cache: true
+          python-version: "3.12"
+      - run: uv sync --locked --all-extras
+      - name: Run InjectKit against the local scripted demo (loopback only)
+        run: |
+          uv run injectkit-demo &
+          demo_pid=$!
+          trap 'kill "$demo_pid"' EXIT
+          for _ in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          uv run injectkit run examples/demo-target.yaml --suite basic \
+            --format sarif --output injectkit.sarif --fail-on never > /dev/null
+      - name: Validate the SARIF against the vendored 2.1.0 schema
+        run: |
+          uv run python -c "
+          import json, jsonschema
+          schema = json.load(open('tests/data/sarif-schema-2.1.0.json', encoding='utf-8'))
+          document = json.load(open('injectkit.sarif', encoding='utf-8'))
+          jsonschema.Draft4Validator(schema).validate(document)
+          print('SARIF valid;', len(document['runs'][0]['results']), 'results')
+          "
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        # Advisory: uploading needs Code Scanning to be available for the repository.
+        continue-on-error: true
+        with:
+          sarif_file: injectkit.sarif
+          category: injectkit-selftest
