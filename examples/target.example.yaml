@@ -27,6 +27,7 @@ limits:
   requests_per_second: 2.0
   retries: 2
   max_requests: 500
+  max_attempts: 1000
 network:
   policy: public_only
   follow_redirects: false

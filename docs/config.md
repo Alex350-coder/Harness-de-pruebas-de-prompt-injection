@@ -57,6 +57,7 @@ limits:
   requests_per_second: 2.0
   retries: 2
   max_requests: 500
+  max_attempts: 1000
 network:
   policy: public_only
   follow_redirects: false
@@ -224,16 +225,25 @@ Give exactly one of `value` or `value_env`. A fragment that appears in a reply p
 | `requests_per_second` | number | `2.0` | 0.1 to 50 | Shared pacing for every attempt, including retries. |
 | `retries` | integer | `2` | 0 to 5 | Extra attempts after a timeout, a connection error, or HTTP 429, 502, 503 or 504. |
 | `max_requests` | integer | `500` | 1 to 5000 | Cap on planned tests (payloads times runs per payload). Checked before anything is sent. |
+| `max_attempts` | integer | `1000` | `max_requests` to 30000 | Budget of send attempts for the whole run, retries included. Must be at least `max_requests`. |
 
 Retries wait with exponential backoff: 0.5 s, doubling, capped at 10 s, with jitter between 50%
 and 100% of that delay. A `Retry-After` header in seconds form is used instead, capped at 30 s.
 
-`max_requests` counts planned tests only. Retry attempts and redirect hops are not counted
-against it. The worst case is therefore planned tests times `retries + 1` attempts, and with
-`follow_redirects: true` each attempt may chain up to `max_redirects + 1` requests. See
-[authorization.md](authorization.md#rate-and-request-caps).
+`max_requests` counts planned tests only. `max_attempts` is the second, runtime limit: every
+send counts against it, retries included, and it is shared by all tests of the run. Once it is
+used up, each remaining test ends as a `policy` error ("attempt budget ... exhausted") and
+nothing more is sent, so the exit code is 3 when more than half of the tests errored. A plan
+with more tests than `max_attempts` is refused before the run (exit code 2).
 
-`injectkit run --max-requests N` can only lower `max_requests`; it never raises it.
+Redirect hops are not counted individually: with `follow_redirects: true` one attempt may chain
+up to `max_redirects + 1` requests (redirects are off by default). The worst case is therefore
+`max_attempts` times `max_redirects + 1`. See [authorization.md](authorization.md#rate-and-request-caps).
+
+To change the limits, edit this block in your config. Raise `max_attempts` together with
+`retries` or `max_requests` (the validator rejects a budget below `max_requests`); lower it to
+tighten the real traffic ceiling. `injectkit run --max-requests N` lowers `max_requests` for one
+run and never raises it.
 
 ## network
 

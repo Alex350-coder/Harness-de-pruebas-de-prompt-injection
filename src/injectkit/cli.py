@@ -200,6 +200,7 @@ def _print_plan(
         f"  suite:             {suite.name} ({len(suite.payloads)} payloads)",
         f"  runs per payload:  {suite.runs_per_payload}",
         f"  planned requests:  {planned} (cap {settings.max_requests})",
+        f"  attempt budget:    {settings.max_attempts} (all sends, retries included)",
         f"  concurrency:       {settings.concurrency}",
         f"  requests/second:   {settings.requests_per_second}",
         f"  retries:           {settings.retries}",

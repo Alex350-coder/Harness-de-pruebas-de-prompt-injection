@@ -166,12 +166,24 @@ class FragmentSpec(_Model):
         return self
 
 
+DEFAULT_MAX_ATTEMPTS = 1000
+MAX_ATTEMPTS_LIMIT = 30000  # 5000 planned tests x (5 retries + 1)
+
+
 class Limits(_Model):
     timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 30
     concurrency: Annotated[int, Field(ge=1, le=32)] = 4
     requests_per_second: Annotated[float, Field(ge=0.1, le=50)] = 2.0
     retries: Annotated[int, Field(ge=0, le=5)] = 2
     max_requests: Annotated[int, Field(ge=1, le=5000)] = 500
+    # Hard budget of send attempts for the whole run, retries included (see docs/config.md).
+    max_attempts: Annotated[int, Field(ge=1, le=MAX_ATTEMPTS_LIMIT)] = DEFAULT_MAX_ATTEMPTS
+
+    @model_validator(mode="after")
+    def _attempts_cover_the_plan(self) -> Self:
+        if self.max_attempts < self.max_requests:
+            raise ValueError("limits.max_attempts must be >= limits.max_requests")
+        return self
 
 
 class NetworkConfig(_Model):

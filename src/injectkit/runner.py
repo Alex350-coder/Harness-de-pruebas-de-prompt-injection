@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from injectkit import __version__
-from injectkit.config import Limits
+from injectkit.config import DEFAULT_MAX_ATTEMPTS, Limits
 from injectkit.detectors import Detector, evaluate
 from injectkit.errors import InjectKitError, RunPlanError, TargetError
 from injectkit.models import (
@@ -45,6 +45,7 @@ class RunSettings:
     requests_per_second: float
     retries: int
     max_requests: int
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
 
     @classmethod
     def from_limits(cls, limits: Limits, *, max_requests: int | None = None) -> RunSettings:
@@ -53,6 +54,7 @@ class RunSettings:
             requests_per_second=limits.requests_per_second,
             retries=limits.retries,
             max_requests=limits.max_requests if max_requests is None else max_requests,
+            max_attempts=limits.max_attempts,
         )
 
 
@@ -72,6 +74,11 @@ def check_plan(suite: Suite, settings: RunSettings) -> int:
     if total > settings.max_requests:
         raise RunPlanError(
             f"planned {total} requests exceeds max_requests={settings.max_requests}; "
+            "nothing was sent"
+        )
+    if total > settings.max_attempts:
+        raise RunPlanError(
+            f"planned {total} requests exceeds max_attempts={settings.max_attempts}; "
             "nothing was sent"
         )
     return total
@@ -99,8 +106,16 @@ class _Job:
         self._limiter = limiter
         self._sleep = sleep
         self._rng = rng
+        self._attempts_used = 0
 
     async def _send(self, text: str) -> TargetResponse:
+        # No await between the check and the increment, so concurrent jobs cannot overshoot.
+        if self._attempts_used >= self._settings.max_attempts:
+            raise TargetError(
+                ErrorKind.POLICY,
+                f"attempt budget of {self._settings.max_attempts} exhausted; nothing more was sent",
+            )
+        self._attempts_used += 1
         await self._limiter.acquire()
         return await self._target.send(text)
 
