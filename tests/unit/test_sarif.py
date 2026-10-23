@@ -75,7 +75,7 @@ def test_results_meet_github_code_scanning_requirements(make_run: RunFactory) ->
             "endLine": 1,
             "endColumn": 1,
         }
-        assert result["partialFingerprints"]["primaryLocationLineHash"]
+        assert result["partialFingerprints"]["injectkit/v1"]
 
 
 def test_rule_ids_are_stable_one_per_category(make_run: RunFactory) -> None:
@@ -88,8 +88,8 @@ def test_fingerprints_are_deterministic_and_do_not_depend_on_evidence(
 ) -> None:
     first = sarif(make_run(evidence="one"))["runs"][0]["results"]
     second = sarif(make_run(evidence="two"))["runs"][0]["results"]
-    hashes = [r["partialFingerprints"]["primaryLocationLineHash"] for r in first]
-    assert hashes == [r["partialFingerprints"]["primaryLocationLineHash"] for r in second]
+    hashes = [r["partialFingerprints"]["injectkit/v1"] for r in first]
+    assert hashes == [r["partialFingerprints"]["injectkit/v1"] for r in second]
     assert len(set(hashes)) == len(hashes)
     assert all(h.endswith(":1") for h in hashes)
 
@@ -214,7 +214,7 @@ def test_distinct_indicators_for_the_same_payload_get_distinct_fingerprints(
     other = finding.model_copy(update={"matched_indicator": "other-indicator"})
     result = run.results[0].model_copy(update={"findings": (finding, other)})
     results = sarif(run.model_copy(update={"results": (result,)}))["runs"][0]["results"]
-    hashes = [r["partialFingerprints"]["primaryLocationLineHash"] for r in results]
+    hashes = [r["partialFingerprints"]["injectkit/v1"] for r in results]
     assert len(set(hashes)) == 2
 
 
@@ -223,7 +223,7 @@ def test_identical_findings_get_increasing_occurrence_numbers(make_run: RunFacto
     finding = run.results[0].findings[0]
     result = run.results[0].model_copy(update={"findings": (finding, finding)})
     results = sarif(run.model_copy(update={"results": (result,)}))["runs"][0]["results"]
-    hashes = [r["partialFingerprints"]["primaryLocationLineHash"] for r in results]
+    hashes = [r["partialFingerprints"]["injectkit/v1"] for r in results]
     assert [h.rsplit(":", 1)[1] for h in hashes] == ["1", "2"]
     assert hashes[0].rsplit(":", 1)[0] == hashes[1].rsplit(":", 1)[0]
 
