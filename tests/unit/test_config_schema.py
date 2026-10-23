@@ -84,6 +84,9 @@ NEGATIVE_CASES: dict[str, Callable[[dict[str, Any]], None]] = {
     "timeout too high": _set(["limits", "timeout_seconds"], 121),
     "max_requests zero": _set(["limits", "max_requests"], 0),
     "max_requests too high": _set(["limits", "max_requests"], 5001),
+    "max_attempts zero": _set(["limits", "max_attempts"], 0),
+    "max_attempts too high": _set(["limits", "max_attempts"], 30001),
+    "max_attempts below max_requests": _set(["limits", "max_attempts"], 100),
     "max_bytes too high": _set(["response", "max_bytes"], 5 * 1024 * 1024 + 1),
     "authorization not confirmed": _set(["authorization", "confirmed"], False),
     "authorization missing": _delete(["authorization"]),
@@ -186,3 +189,17 @@ def test_config_error_does_not_chain_the_raw_input() -> None:
         parse_config(data)
     assert info.value.__cause__ is None
     assert info.value.__suppress_context__
+
+
+def test_max_attempts_defaults_to_a_moderate_budget_above_the_default_request_cap() -> None:
+    from injectkit.config import DEFAULT_MAX_ATTEMPTS, Limits
+
+    limits = Limits()
+    assert limits.max_attempts == DEFAULT_MAX_ATTEMPTS == 1000
+    assert limits.max_attempts >= limits.max_requests
+
+
+def test_max_attempts_equal_to_max_requests_is_accepted() -> None:
+    from injectkit.config import Limits
+
+    assert Limits(max_requests=300, max_attempts=300).max_attempts == 300

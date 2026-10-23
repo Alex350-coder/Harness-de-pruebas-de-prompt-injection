@@ -42,17 +42,19 @@ The full table is in [config.md](config.md#network-policy-modes).
 | `limits.retries` | 2 | 5 | Retries only timeouts, connection errors and HTTP 429, 502, 503, 504 |
 | `limits.timeout_seconds` | 30 | 120 | Per send attempt, including redirect hops |
 | `limits.max_requests` | 500 | 5000 | Planned tests, checked before any request is sent |
+| `limits.max_attempts` | 1000 | 30000 | Budget of sends for the whole run, retries included; later tests fail as `policy` errors |
 | `response.max_bytes` | 1 MiB | 5 MiB | Declared length and streamed size; compressed replies refused |
 | Payloads per suite | — | 200 | Suite loader |
 | Suite file size | — | 512 KiB | Suite loader |
 
 `injectkit run --max-requests N` can lower the cap for one run; it can never raise it.
 
-**Important limit of `max_requests`.** The cap is checked against the planned number of tests
-(payloads times runs per payload) before the run starts. Retry attempts and redirect hops are not
-counted against it. With the defaults and the `basic` suite (32 payloads), the plan is 32 tests,
-and each test may send up to 3 attempts, so up to 96 requests. With `follow_redirects: true`
-each attempt may also chain up to `max_redirects + 1` requests. Set `retries`,
+**How the two request limits differ.** `max_requests` is checked against the planned number of
+tests (payloads times runs per payload) before the run starts. `max_attempts` is enforced while
+the run goes on and counts every send, retries included. With the defaults and the `basic` suite
+(32 payloads), the plan is 32 tests and each may send up to 3 attempts, so up to 96 requests,
+far below the budget of 1000. Redirect hops inside one attempt are not counted one by one: with
+`follow_redirects: true` an attempt may chain up to `max_redirects + 1` requests. Set `retries`,
 `requests_per_second` and `max_redirects` with this in mind.
 
 Ctrl+C stops the run, keeps the partial results and exits with code 130.
@@ -105,8 +107,7 @@ without a real target. It is not a product and not a model (see [demo.md](demo.m
 
 ## Reporting a security issue in InjectKit
 
-TODO-USER: the security reporting contact has not been supplied. Replace this line with the
-channel that the maintainer chooses before publishing.
+Report vulnerabilities privately to anderaguirre787@gmail.com. See [SECURITY.md](../SECURITY.md).
 
 ## Residual risks
 
@@ -117,11 +118,11 @@ of fixed, each with its reason).
 
 **Request and memory bounds (accepted, medium):**
 
-* `limits.max_requests` counts planned tests, not HTTP attempts. Retries (at most 5 per test)
-  and redirect hops (at most `max_redirects` per attempt) multiply the real number of requests
-  (see [Rate and request caps](#rate-and-request-caps)). Everything stays finite and every
-  attempt passes the shared rate limiter, but the plan check does not include them. Changing
-  the meaning of the cap is a behavior change left for a later release.
+* `limits.max_requests` counts planned tests, and `limits.max_attempts` (added after the Phase 5
+  review) caps every send of the run, retries included. Redirect hops inside one attempt (at
+  most `max_redirects`) are still not counted one by one, and redirects are off by default
+  (see [Rate and request caps](#rate-and-request-caps)). Every attempt passes the shared rate
+  limiter.
 * Raw replies are kept in memory until the detectors run, so the peak is about
   `max_requests` times `max_bytes` (500 x 1 MiB with the defaults, up to 5000 x 5 MiB at the
   configured maximums). Lower `max_bytes` and `max_requests` for large suites.

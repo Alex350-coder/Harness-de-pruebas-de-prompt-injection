@@ -3,6 +3,19 @@
 All notable changes are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project uses [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `limits.max_attempts` (default 1000, at most 30000, at least `max_requests`): a run-wide budget
+  of send attempts, retries included. Tests past the budget end as `policy` errors and nothing
+  more is sent; a plan larger than the budget is refused (exit 2); `--dry-run` prints it.
+
+### Fixed
+
+- The test suite no longer depends on CI environment variables: `GITHUB_ACTIONS` made Rich emit
+  ANSI codes in `--help`, which failed `pytest` in every remote CI run since Phase 4.
+
 ## [0.1.0] - release candidate (not published)
 
 First release candidate. Nothing has been tagged or published; that is a maintainer action
@@ -30,6 +43,5 @@ First release candidate. Nothing has been tagged or published; that is a maintai
 
 ### Known limitations
 
-See "Residual risks" in [docs/authorization.md](docs/authorization.md). In particular: the
-request cap counts planned tests rather than retry attempts, regex checks have no timeout, and
+See "Residual risks" in [docs/authorization.md](docs/authorization.md). In particular: regex checks have no timeout, and
 the payload library has not had an independent human review.

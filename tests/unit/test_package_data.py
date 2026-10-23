@@ -96,6 +96,9 @@ def test_metadata_is_complete_and_the_version_is_single_sourced(dist: Path) -> N
     assert "Typing :: Typed" in classifiers
     assert "Topic :: Security" in classifiers
     assert "TODO-USER" not in str(meta)
+    assert meta["Author"] == "Alexander A."
+    urls = meta.get_all("Project-URL") or []
+    assert any(u.endswith("Alex350-coder/Harness-de-pruebas-de-prompt-injection") for u in urls)
 
 
 def test_declared_version_is_not_duplicated_in_source() -> None:

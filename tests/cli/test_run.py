@@ -399,3 +399,10 @@ def test_sarif_has_no_response_text_unless_include_responses_is_given(tmp_path: 
         full = invoke_run(tmp_path, "--format", "sarif", "--include-responses")
     assert "Evidence:" not in plain.stdout
     assert "Evidence:" in full.stdout
+
+
+def test_dry_run_prints_the_attempt_budget(tmp_path: Path) -> None:
+    result = invoke_run(tmp_path, "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert "attempt budget:" in result.stdout
+    assert "1000" in result.stdout

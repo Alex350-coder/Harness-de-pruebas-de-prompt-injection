@@ -23,8 +23,8 @@ visibility.
 3. On PyPI, add a **trusted publisher** (pending publisher for a new project) pointing at this
    repository, workflow file `release.yml` and environment `pypi`. No API token is created or
    stored; the workflow uses OpenID Connect (`id-token: write` on the publish job only).
-4. Fill the open `TODO-USER` placeholders (run `git grep -n "TODO-USER"`): security contact
-   in `SECURITY.md`, and optionally author and project URLs in `pyproject.toml`.
+4. Check that no `TODO-USER` placeholder is left (`git grep -n "TODO-USER"`). Security contact,
+   author and project URLs are filled in. Check on pypi.org that the name `injectkit` is free.
 5. Enable GitHub Code Scanning if you want the SARIF upload job (`injectkit-selftest`) to
    succeed; it is advisory and does not block merges.
 

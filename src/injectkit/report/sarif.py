@@ -131,9 +131,7 @@ def _results(findings: list[Finding], uri: str, *, include_evidence: bool) -> li
                         }
                     }
                 ],
-                "partialFingerprints": {
-                    "primaryLocationLineHash": _fingerprint(finding, seen[base])
-                },
+                "partialFingerprints": {"injectkit/v1": _fingerprint(finding, seen[base])},
                 "properties": {
                     "payload_id": finding.payload_id,
                     "detector": finding.detector,

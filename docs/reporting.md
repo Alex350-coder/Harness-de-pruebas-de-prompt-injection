@@ -71,7 +71,7 @@ has not been verified, because the project has no remote repository yet.
   path is never written; a config outside the current directory is named by its file name only.
   A finding is a runtime observation, not a defect in source code, so the location only says
   which config produced it.
-* **Fingerprint.** `partialFingerprints.primaryLocationLineHash` is the first 32 hex digits of a
+* **Fingerprint.** `partialFingerprints.injectkit/v1` is the first 32 hex digits of a
   SHA-256 over the target name, the payload id and the detector, followed by `:` and an
   occurrence counter. It holds no evidence and no secret, and it is the same across runs of the
   same config and suite. Renaming `name` in the config changes it.

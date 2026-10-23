@@ -163,6 +163,25 @@ The report formats, the SARIF fields and the outcomes are described in
 Precedence is 130, then 1, then 3: a run with a confirmed finding exits 1 even if many tests
 errored (stderr then warns with the error count). Exactly half errored is still exit 0. A clean exit 0 is **not** proof that the target is secure.
 
+## Request limits
+
+All limits live in the `limits` block of the target config and have hard maximums that the
+config validator enforces. The defaults are meant for a staging chatbot you own.
+
+| Setting | Default | Hard maximum | Raise it when | Lower it when |
+|---|---|---|---|---|
+| `max_requests` | 500 | 5000 | You run a bigger suite or several runs per payload | The target is expensive or rate-limited |
+| `max_attempts` | 1000 | 30000 | You also raise `retries`; keep it at or above `max_requests` | You want a tighter ceiling on real traffic |
+| `retries` | 2 | 5 | The target is flaky | You want failures to show up fast |
+| `requests_per_second` | 2.0 | 50 | The target is yours and can take more | Always, if in doubt |
+| `concurrency` | 4 | 32 | Same as above | The target is small |
+
+`max_attempts` is the budget for the whole run: every send counts, retries included. When it is
+used up, the remaining tests are reported as `policy` errors and nothing else is sent. A plan
+larger than the budget is refused before any request (exit code 2), and `injectkit run
+--dry-run` prints the budget. Edit the numbers in your config file; `--max-requests N` can only
+lower `max_requests` for a single run. Details: [docs/config.md](docs/config.md#limits).
+
 ## Documentation
 
 * [docs/config.md](docs/config.md): config reference, environment variables and network policy.
@@ -184,8 +203,10 @@ errored (stderr then warns with the error count). Exactly half errored is still 
   heuristic rules. Paraphrased or encoded leaks are missed.
 * The built-in payload library was reviewed by an AI agent. An independent human review is still
   pending.
-* `max_requests` counts planned tests. Retries and redirect hops are not counted. See
-  [docs/authorization.md](docs/authorization.md#rate-and-request-caps).
+* Request limits are set in the `limits` block of your config, and the defaults are moderate
+  (see "Request limits" below). `max_requests` caps planned tests and `max_attempts` caps every
+  send of the run, retries included. Redirect hops inside one attempt are bounded separately by
+  `network.max_redirects`, and redirects are off by default.
 
 ## Development
 

@@ -44,12 +44,14 @@ def settings(
     requests_per_second: float = 1000.0,
     retries: int = 0,
     max_requests: int = 500,
+    max_attempts: int = 1000,
 ) -> RunSettings:
     return RunSettings(
         concurrency=concurrency,
         requests_per_second=requests_per_second,
         retries=retries,
         max_requests=max_requests,
+        max_attempts=max_attempts,
     )
 
 
@@ -311,3 +313,68 @@ async def test_cancellation_returns_partial_results_flagged_interrupted() -> Non
     assert collected.interrupted
     assert 2 <= len(collected.exchanges) < 10
     assert all(e.error is None for e in collected.exchanges)
+
+
+def timeout_error(_text: str, _n: int) -> Exception:
+    return TargetError(ErrorKind.TIMEOUT, "timed out")
+
+
+async def test_attempt_budget_caps_total_sends_including_retries() -> None:
+    target = ScriptedTarget(timeout_error)
+    collected = await collect_exchanges(
+        target,
+        make_suite(5),
+        settings(concurrency=1, retries=2, max_attempts=6),
+        redactor=Redactor(),
+        sleep=no_sleep,
+    )
+    assert len(target.sent) == 6  # 3 attempts for each of the first two tests, then stop
+    assert len(collected.exchanges) == 5
+    assert [e.attempts for e in collected.exchanges] == [3, 3, 1, 1, 1]
+
+
+async def test_tests_beyond_the_attempt_budget_fail_as_policy_errors_without_sending() -> None:
+    target = ScriptedTarget(timeout_error)
+    collected = await collect_exchanges(
+        target,
+        make_suite(5),
+        settings(concurrency=1, retries=2, max_attempts=6),
+        redactor=Redactor(),
+        sleep=no_sleep,
+    )
+    errors = [e.error for e in collected.exchanges if e.error is not None]
+    assert len(errors) == 5
+    policy = [e for e in errors if e.kind is ErrorKind.POLICY]
+    assert len(policy) == 3, "tests past the budget must be reported as policy errors"
+    assert all("attempt budget" in e.message for e in policy)
+
+
+async def test_budget_is_not_touched_by_a_healthy_run() -> None:
+    target = ScriptedTarget()
+    collected = await collect_exchanges(
+        target, make_suite(10), settings(max_attempts=10), redactor=Redactor()
+    )
+    assert len(target.sent) == 10
+    assert all(e.error is None for e in collected.exchanges)
+
+
+async def test_plan_larger_than_the_attempt_budget_is_refused_before_any_send() -> None:
+    target = ScriptedTarget()
+    with pytest.raises(RunPlanError, match="max_attempts"):
+        await collect_exchanges(
+            target, make_suite(10), settings(max_requests=500, max_attempts=9), redactor=Redactor()
+        )
+    assert target.sent == []
+    assert target.entered == 0
+
+
+async def test_attempt_budget_holds_under_concurrency() -> None:
+    target = ScriptedTarget(timeout_error)
+    await collect_exchanges(
+        target,
+        make_suite(40),
+        settings(concurrency=8, retries=3, max_attempts=50),
+        redactor=Redactor(),
+        sleep=no_sleep,
+    )
+    assert len(target.sent) == 50

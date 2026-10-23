@@ -14,11 +14,9 @@ InjectKit is pre-release software. Only the 0.1.x line receives security fixes.
 
 ## Reporting a vulnerability
 
-TODO-USER: security reporting contact (private channel) has not been supplied
-
-Until a private channel is published here, do not post exploit details in a public issue or pull
-request. If you need to flag a problem, open a public issue that says only that you have a security
-report, with no technical details.
+Report vulnerabilities privately by e-mail to **anderaguirre787@gmail.com**. Please do not post
+exploit details in a public issue or pull request. If e-mail is not possible, open a public issue
+that says only that you have a security report, with no technical details.
 
 ## What is in scope
 

@@ -25,6 +25,20 @@ PayloadFactory = Callable[..., Payload]
 ExchangeFactory = Callable[..., Exchange]
 
 
+@pytest.fixture(autouse=True)
+def _plain_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make CLI output independent of where the suite runs.
+
+    GitHub Actions sets ``GITHUB_ACTIONS``/``CI``, which makes Rich colorize even a captured
+    stream; ANSI codes then split words in ``--help`` and break text assertions. Tests that
+    need colour build their own ``Console`` explicitly.
+    """
+    for name in ("GITHUB_ACTIONS", "CI", "FORCE_COLOR", "TTY_COMPATIBLE", "TTY_INTERACTIVE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.setenv("COLUMNS", "80")
+
+
 @pytest.fixture
 def canary() -> Canary:
     return CANARY
