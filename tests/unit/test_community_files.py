@@ -13,6 +13,9 @@ EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 ALLOWED_URL_HOSTS = {"docs.astral.sh", "www.apache.org"}
 
 
+SECURITY_CONTACT = "anderaguirre787@gmail.com"  # supplied by the maintainer
+
+
 def read(name: str) -> str:
     return (ROOT / name).read_text(encoding="utf-8")
 
@@ -25,15 +28,15 @@ def test_file_exists_and_is_not_empty(name: str) -> None:
 @pytest.mark.parametrize("name", FILES)
 def test_no_email_addresses_and_only_known_url_hosts(name: str) -> None:
     text = read(name)
-    assert not EMAIL.search(text)
+    assert set(EMAIL.findall(text)) <= {SECURITY_CONTACT}
     for host in re.findall(r"https?://([^/\s)>\]]+)", text):
         assert host in ALLOWED_URL_HOSTS, f"{name}: unexpected URL host {host}"
 
 
-def test_security_contact_is_an_explicit_placeholder() -> None:
+def test_security_contact_is_the_maintainer_supplied_address() -> None:
     text = read("SECURITY.md")
-    assert "TODO-USER: security reporting contact" in text
-    assert text.count("TODO-USER") == 1
+    assert SECURITY_CONTACT in text
+    assert "TODO-USER" not in text
 
 
 @pytest.mark.parametrize("name", ["SECURITY.md", "CONTRIBUTING.md"])

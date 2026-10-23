@@ -107,8 +107,7 @@ without a real target. It is not a product and not a model (see [demo.md](demo.m
 
 ## Reporting a security issue in InjectKit
 
-TODO-USER: the security reporting contact has not been supplied. Replace this line with the
-channel that the maintainer chooses before publishing.
+Report vulnerabilities privately to anderaguirre787@gmail.com. See [SECURITY.md](../SECURITY.md).
 
 ## Residual risks
 
