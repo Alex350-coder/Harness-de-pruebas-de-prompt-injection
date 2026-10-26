@@ -1,5 +1,7 @@
 # InjectKit
 
+[![CI](https://github.com/Alex350-coder/Harness-de-pruebas-de-prompt-injection/actions/workflows/ci.yml/badge.svg)](https://github.com/Alex350-coder/Harness-de-pruebas-de-prompt-injection/actions/workflows/ci.yml)
+
 InjectKit is a command-line tool for **authorized** prompt-injection testing of LLM-powered
 HTTP applications. You describe an endpoint in a YAML file. InjectKit sends a reviewed set of
 benign test payloads to it, checks each reply with deterministic detectors, and writes a report
@@ -9,12 +11,22 @@ to the console, as JSON, or as SARIF 2.1.0.
 > test. A config must carry `authorization.confirmed: true`, which is your attestation and not a
 > check. Read [docs/authorization.md](docs/authorization.md) before your first run.
 
+**Contents:** [Status](#status) · [How it works](#how-it-works) · [Install](#install) · [Quickstart](#quickstart-with-the-demo) · [Your own endpoint](#testing-your-own-endpoint) · [Options](#using-run) · [Exit codes](#exit-codes) · [Limits](#request-limits) · [Docs](#documentation) · [Limitations](#limitations) · [Contributing and security](#contributing-and-security)
+
 ## Status
 
 * Version `0.1.0`, alpha (`Development Status :: 3 - Alpha`).
 * **InjectKit is not published on PyPI.** Install it from a source checkout or from a wheel that
   you build yourself (below).
 * Python 3.12 or newer. License: Apache-2.0 (see [LICENSE](LICENSE)).
+
+## How it works
+
+1. **Configure:** a YAML file names the endpoint, the request body, where the reply text lives, your authorization attestation and the limits.
+2. **Plan:** InjectKit loads a suite, renders each payload with a fresh canary, and checks the plan against the request cap. `--dry-run` stops here.
+3. **Send:** payloads go out under the concurrency, rate, retry and attempt limits, through the network policy.
+4. **Detect:** deterministic detectors look for the canary, a configured secret fragment, or response-shape rules in each reply.
+5. **Report:** console, JSON or SARIF, with every configured secret redacted. The exit code tells CI whether to fail.
 
 ## What it does and does not do
 
@@ -195,8 +207,9 @@ lower `max_requests` for a single run. Details: [docs/config.md](docs/config.md#
 ## Limitations
 
 * Alpha software (`0.1.0`). The CLI and the config schema may still change.
-* Not published on PyPI. The remote CI workflow and SARIF upload to GitHub Code Scanning are not
-  verified yet, because the project has no remote repository.
+* Not published on PyPI. The CI workflow and the SARIF upload to GitHub Code Scanning run in the
+  [GitHub repository](https://github.com/Alex350-coder/Harness-de-pruebas-de-prompt-injection);
+  check the badge above for the current state of `master`.
 * Tests only HTTP endpoints that accept a JSON `POST`, `PUT` or `PATCH` and return JSON. Streaming
   replies, WebSockets and multi-turn sessions are not supported.
 * Detectors find only what they are built to find: exact canaries and configured fragments, plus
@@ -204,7 +217,7 @@ lower `max_requests` for a single run. Details: [docs/config.md](docs/config.md#
 * The built-in payload library was reviewed by an AI agent. An independent human review is still
   pending.
 * Request limits are set in the `limits` block of your config, and the defaults are moderate
-  (see "Request limits" below). `max_requests` caps planned tests and `max_attempts` caps every
+  (see [Request limits](#request-limits)). `max_requests` caps planned tests and `max_attempts` caps every
   send of the run, retries included. Redirect hops inside one attempt are bounded separately by
   `network.max_redirects`, and redirects are off by default.
 
@@ -218,6 +231,13 @@ uv run ruff check .
 uv run mypy
 uv run pytest --cov
 ```
+
+## Contributing and security
+
+* Contributions: see [CONTRIBUTING.md](CONTRIBUTING.md).
+* Found a vulnerability in InjectKit itself? Follow [SECURITY.md](SECURITY.md) and report it
+  privately, not in a public issue.
+* Releasing (maintainers): [RELEASING.md](RELEASING.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
