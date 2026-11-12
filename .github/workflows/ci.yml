@@ -149,7 +149,7 @@ jobs:
           jsonschema.Draft4Validator(schema).validate(document)
           print('SARIF valid;', len(document['runs'][0]['results']), 'results')
           "
-      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         # Advisory: uploading needs Code Scanning to be available for the repository.
         continue-on-error: true
         with:
